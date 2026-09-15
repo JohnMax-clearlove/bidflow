@@ -1,0 +1,36 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "section_id": {
+      "title": "Section Id",
+      "type": "string"
+    },
+    "markdown": {
+      "minLength": 1,
+      "title": "Markdown",
+      "type": "string"
+    },
+    "writer_id": {
+      "minLength": 1,
+      "title": "Writer Id",
+      "type": "string"
+    },
+    "covered_subrequirements": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Covered Subrequirements",
+      "type": "object"
+    }
+  },
+  "required": [
+    "section_id",
+    "markdown",
+    "writer_id"
+  ],
+  "title": "WriteResult",
+  "type": "object"
+}

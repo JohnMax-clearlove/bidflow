@@ -1,0 +1,16 @@
+/.venv/
+/projects/
+/company_library/
+/config_private/
+/.work/
+/build/
+/dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+**/.bidflow/
+~$*

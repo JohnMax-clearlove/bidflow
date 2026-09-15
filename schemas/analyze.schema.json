@@ -1,0 +1,192 @@
+{
+  "$defs": {
+    "Rule": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "enum": [
+            "qualification",
+            "invalid",
+            "business",
+            "technical",
+            "requirement",
+            "price"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "max_score": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Score"
+        },
+        "status": {
+          "default": "draft",
+          "enum": [
+            "draft",
+            "confirmed",
+            "retired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "revision": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "subrequirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subrequirements",
+          "type": "array"
+        },
+        "criteria": {
+          "additionalProperties": true,
+          "title": "Criteria",
+          "type": "object"
+        },
+        "conflict": {
+          "default": false,
+          "title": "Conflict",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "text",
+        "sources"
+      ],
+      "title": "Rule",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": true,
+      "properties": {
+        "file_id": {
+          "title": "File Id",
+          "type": "string"
+        },
+        "block_id": {
+          "title": "Block Id",
+          "type": "string"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        }
+      },
+      "required": [
+        "file_id",
+        "block_id",
+        "quote"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/Rule"
+      },
+      "title": "Rules",
+      "type": "array"
+    },
+    "covered_block_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Covered Block Ids",
+      "type": "array"
+    },
+    "facts": {
+      "additionalProperties": true,
+      "title": "Facts",
+      "type": "object"
+    },
+    "settings": {
+      "additionalProperties": true,
+      "description": "仅提议从招标原文提取的项目设置，例如anonymous、allow_indices、expected_total_score；接收后仍需rules确认。",
+      "title": "Settings",
+      "type": "object"
+    },
+    "conflicts": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "retire_rule_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Retire Rule Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "rules",
+    "covered_block_ids"
+  ],
+  "title": "AnalyzeResult",
+  "type": "object"
+}

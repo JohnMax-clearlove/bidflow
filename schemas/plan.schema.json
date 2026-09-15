@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "SectionPlan": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Rule Ids",
+          "type": "array"
+        },
+        "content_points": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Content Points",
+          "type": "array"
+        },
+        "fact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fact Refs",
+          "type": "array"
+        },
+        "method_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Method Refs",
+          "type": "array"
+        },
+        "visuals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Visuals",
+          "type": "array"
+        },
+        "volume": {
+          "default": "技术部分",
+          "title": "Volume",
+          "type": "string"
+        },
+        "status": {
+          "default": "draft",
+          "enum": [
+            "draft",
+            "confirmed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "rule_ids",
+        "content_points"
+      ],
+      "title": "SectionPlan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "plans": {
+      "items": {
+        "$ref": "#/$defs/SectionPlan"
+      },
+      "minItems": 1,
+      "title": "Plans",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plans"
+  ],
+  "title": "PlanResult",
+  "type": "object"
+}

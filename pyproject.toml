@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bidflow-local"
+version = "0.1.0"
+description = "本地优先的 Agent 投标文件编制工作流"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.7,<3", "python-docx>=1.1", "pdfplumber>=0.11", "pypdfium2>=4.30", "pypdf>=5", "openpyxl>=3.1", "Pillow>=10"]
+
+[project.optional-dependencies]
+ocr = ["rapidocr>=3.0", "onnxruntime>=1.18"]
+dev = ["pytest>=8", "build>=1"]
+
+[project.scripts]
+bidflow = "bidflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+bidflow = ["assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

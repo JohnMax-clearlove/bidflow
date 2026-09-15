@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "Evidence": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "file_id": {
+          "title": "File Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "pages": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pages",
+          "type": "array"
+        },
+        "facts": {
+          "additionalProperties": true,
+          "title": "Facts",
+          "type": "object"
+        },
+        "verification": {
+          "default": "candidate",
+          "enum": [
+            "candidate",
+            "verified",
+            "insufficient",
+            "rejected"
+          ],
+          "title": "Verification",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "verified_by": {
+          "default": "",
+          "title": "Verified By",
+          "type": "string"
+        },
+        "file_sha256": {
+          "default": "",
+          "title": "File Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id",
+        "title"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "Response": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "section_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Section Ids",
+          "type": "array"
+        },
+        "status": {
+          "default": "candidate",
+          "enum": [
+            "candidate",
+            "supported",
+            "insufficient",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "rationale": {
+          "minLength": 1,
+          "title": "Rationale",
+          "type": "string"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing",
+          "type": "array"
+        },
+        "rule_revision": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Rule Revision",
+          "type": "integer"
+        },
+        "covered_subrequirements": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Covered Subrequirements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule_id",
+        "rationale"
+      ],
+      "title": "Response",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "responses": {
+      "items": {
+        "$ref": "#/$defs/Response"
+      },
+      "title": "Responses",
+      "type": "array"
+    }
+  },
+  "title": "EvidenceResult",
+  "type": "object"
+}

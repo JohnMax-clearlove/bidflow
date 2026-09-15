@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "ReviewFinding": {
+      "additionalProperties": true,
+      "properties": {
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "suggestion": {
+          "title": "Suggestion",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "severity",
+        "message",
+        "suggestion",
+        "location"
+      ],
+      "title": "ReviewFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "section_id": {
+      "title": "Section Id",
+      "type": "string"
+    },
+    "reviewer_id": {
+      "minLength": 1,
+      "title": "Reviewer Id",
+      "type": "string"
+    },
+    "writer_id": {
+      "minLength": 1,
+      "title": "Writer Id",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ReviewFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "scores": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Scores",
+      "type": "array"
+    },
+    "covered_subrequirements": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "description": "Reviewer逐条确认正文实际覆盖的评分子要求；不能照抄Writer自报结果。",
+      "title": "Covered Subrequirements",
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "pass",
+        "revise"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "section_id",
+    "reviewer_id",
+    "writer_id",
+    "findings",
+    "scores",
+    "status"
+  ],
+  "title": "ReviewResult",
+  "type": "object"
+}

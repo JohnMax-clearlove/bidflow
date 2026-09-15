@@ -1,0 +1,10 @@
+{
+  "project_name": "项目名称",
+  "company_name": "投标人名称",
+  "deadline": "2026-12-31 09:00",
+  "service_period": "自合同签订之日起60日",
+  "price": "100000.00",
+  "price_upper": "壹拾万元整",
+  "legal_representative": "待确认",
+  "authorized_representative": "待确认"
+}
