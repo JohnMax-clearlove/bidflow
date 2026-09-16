@@ -213,7 +213,7 @@ def test_text_encoding_empty_and_document_instructions_are_data(project, tmp_pat
     assert not marker.exists()
 
 
-def test_pdf_page_count_and_source_locator(project, tmp_path):
+def test_pdf_page_count_and_source_locator(project, tmp_path, piped_subprocess):
     source = artifact(tmp_path, "pdf")
     result = ingest(project, source)
     assert result["page_count"] == 2
@@ -222,7 +222,7 @@ def test_pdf_page_count_and_source_locator(project, tmp_path):
     assert project.load("files")[0]["page_basis"] == "physical"
 
 
-def test_pdf_small_mixed_image_is_not_silently_omitted(project, tmp_path, monkeypatch):
+def test_pdf_small_mixed_image_is_not_silently_omitted(project, tmp_path, monkeypatch, piped_subprocess):
     calls = []
     def recognize(path, config):
         calls.append(path)
@@ -234,14 +234,14 @@ def test_pdf_small_mixed_image_is_not_silently_omitted(project, tmp_path, monkey
     assert search(project, "隐藏图片")["count"] == 1
 
 
-def test_blank_pdf_and_failed_ocr_remain_reviewable(project, tmp_path):
+def test_blank_pdf_and_failed_ocr_remain_reviewable(project, tmp_path, piped_subprocess):
     result = ingest(project, artifact(tmp_path, "blank_pdf"))
     assert result["page_count"] == 2 and len(result["review_blocks"]) == 2
     assert all(b["quality"] == "review" and b.get("preview") for b in project.load("blocks"))
     assert any("尚未开启" in warning for warning in result["warnings"])
 
 
-def test_pdf_page_numbers_excluded_but_repeated_requirements_retained(project, tmp_path):
+def test_pdf_page_numbers_excluded_but_repeated_requirements_retained(project, tmp_path, piped_subprocess):
     result = ingest(project, artifact(tmp_path, "edge_pdf"))
     blocks = project.load("blocks")
     assert len([b for b in blocks if b.get("excluded_from_clean")]) == 3
@@ -258,7 +258,7 @@ def test_corrupt_pdf_retains_original_and_uncertainty(project, tmp_path):
     assert project.safe_path(result["path"]).read_bytes() == b"not a pdf"
 
 
-def test_docx_table_controls_revisions_header_and_block_ids(project, tmp_path):
+def test_docx_table_controls_revisions_header_and_block_ids(project, tmp_path, piped_subprocess):
     result = ingest(project, artifact(tmp_path, "docx"))
     blocks = project.load("blocks")
     text = "\n".join(b["text"] for b in blocks)
@@ -285,7 +285,7 @@ def test_real_word_source_page_mapping_preserves_original(project, tmp_path):
     assert sha256_file(source) == original
 
 
-def test_docx_embedded_image_ocr_and_unknown_page(project, tmp_path, monkeypatch):
+def test_docx_embedded_image_ocr_and_unknown_page(project, tmp_path, monkeypatch, piped_subprocess):
     monkeypatch.setattr(parser_helpers, "_ocr", lambda *args: ([{"text": "嵌入图像评分项", "confidence": .98, "ocr_box": None}], None))
     result = ingest(project, artifact(tmp_path, "docx_image"), ocr=True)
     block = next(b for b in project.load("blocks") if b["text"] == "嵌入图像评分项")
@@ -293,7 +293,7 @@ def test_docx_embedded_image_ocr_and_unknown_page(project, tmp_path, monkeypatch
     assert result["status"] == "needs_review"
 
 
-def test_image_multi_page_tiff_and_missing_preview_rebuild(project, tmp_path):
+def test_image_multi_page_tiff_and_missing_preview_rebuild(project, tmp_path, piped_subprocess):
     source = artifact(tmp_path, "tiff")
     first = ingest(project, source)
     assert first["page_count"] == 2 and len(first["review_blocks"]) == 2
@@ -359,7 +359,7 @@ def test_ledger_contract_conflicts_not_overwritten_or_duplicated(project, tmp_pa
     assert len(project.load("history")[0]["conflicts"]) == 1
 
 
-def test_xlsx_formulas_not_facts_and_dates_preserved(project, tmp_path):
+def test_xlsx_formulas_not_facts_and_dates_preserved(project, tmp_path, piped_subprocess):
     result = import_ledger(project, artifact(tmp_path, "xlsx"))
     history = project.load("history")[0]
     assert history["contract_date"] == "2026-01-01"

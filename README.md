@@ -142,6 +142,22 @@ bidflow task accept --project . --task TASK编号 --result .bidflow/tasks/TASK�
 - 所有输入、解析缓存、主记录和成品默认留在本机。钉钉、飞书和合同系统接口当前只生成“需人工检索”提示；下载后的资料要放回项目再导入。
 - `projects/`、`company_library/`、缓存和真实成果均不应提交公开 Git。仓库中的 [`examples`](examples/合成咨询服务输入/README.md) 全部为虚构测试数据。
 
+## 开发验证与提交
+
+所有 Agent 修改本仓库后，按 `AGENTS.md` 检查差异、运行相关测试并提交到本地 Git；推送 GitHub 需要用户授权。真实资料和临时产物不提交。
+
+常规测试运行 `python -m pytest`。Windows 受限环境若无法创建默认临时目录，运行 `python tests/run_tests.py -rs`；测试产物保存在已忽略的 `.bidflow-pytest-tmp/`。跳过项必须单独检查，不能按通过计数。
+
+本机安装 Microsoft Word 后，显式运行实际分页和组卷验证：
+
+```powershell
+$env:BIDFLOW_WORD_TEST = '1'
+$env:BIDFLOW_TEST_WORD = '1'
+python tests/run_tests.py -rs
+```
+
+Word 自动化应在能正常使用桌面 Word 的 Windows 环境运行。沙箱阻止 COM 自动化时，须在允许的正常环境补验，不能以基础测试通过替代 Word/PDF 验证。
+
 ## 进一步说明
 
 - [文件导入、OCR、检索和台账](docs/文件导入.md)

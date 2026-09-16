@@ -135,6 +135,34 @@ def coverage(project) -> dict:
     return {"total": len(current), "covered": len(covered), "missing": sorted(set(current) - covered), "complete": bool(current) and not set(current) - covered}
 
 
+def _source_drift(project) -> list[dict]:
+    """检查导入位置的原件是否已被改动而项目内副本未同步。
+
+    项目内副本才是分析依据，原文件被改不会自动生效；这里只提示需要重新导入，
+    不擅自把新内容并入项目，也不据此判定规则内容。
+    """
+    rows = []
+    files = [row for row in project.load("files") if row.get("active", True)]
+    for row in files:
+        source = row.get("source")
+        if not source or not row.get("path"):
+            continue
+        try:
+            copy = project.safe_path(row["path"])
+            original = Path(source).resolve()
+            if original == copy:
+                continue
+            digest = sha256_file(original)
+        except (ValueError, OSError):
+            rows.append({"file_id": row["id"], "name": row.get("original_name", row["id"]), "unavailable": True})
+            continue
+        # 同一来源的新版本已导入时，旧版本只保留作追溯，不再反复要求重新导入。
+        imported = any(f.get("sha256") == digest and str(original) in [f.get("source"), *f.get("sources", [])] for f in files)
+        if digest != row.get("sha256") and not imported:
+            rows.append({"file_id": row["id"], "name": row.get("original_name") or original.name, "source": str(original)})
+    return rows
+
+
 def sync(project) -> dict:
     tasks = project.load("tasks")
     changed = []
@@ -156,8 +184,26 @@ def sync(project) -> dict:
         if outdated and section.get("status") != "stale":
             section["status"] = "stale"
             changed.append(section["id"])
-    project.commit({"tasks": tasks, "sections": sections}, reason="检测输入和人工改稿版本")
-    return {"stale": changed}
+    changes: dict[str, Any] = {"tasks": tasks, "sections": sections}
+    drifted = _source_drift(project)
+    issues = project.load("issues")
+    current_drift = {row["file_id"] for row in drifted}
+    for issue in issues:
+        if issue.get("detector") == "source_drift" and issue.get("status") == "open" and not current_drift.intersection(issue.get("refs", [])):
+            issue.update(status="resolved", resolution="当前来源已恢复、已重新导入或不再作为有效来源")
+    if drifted:
+        known = {tuple(row.get("refs", [])) for row in issues if row.get("status", "open") == "open" and row.get("category") == "资料变化"}
+        for row in drifted:
+            if (row["file_id"],) in known:
+                continue
+            message = (f"{row['name']} 的导入位置原件暂时无法读取，请核查来源访问状态；项目内副本保持不变。" if row.get("unavailable") else
+                       f"{row['name']} 的导入位置原件已变化，但项目内副本仍是导入时的版本；本次确认和拆标结果只对项目内副本有效，请重新导入后再继续。")
+            issues.append({"id": unique_id("ISS", issues), "severity": "warning", "category": "资料变化", "detector": "source_drift",
+                           "message": message,
+                           "refs": [row["file_id"]], "status": "open"})
+    changes["issues"] = issues
+    project.commit(changes, reason="检测输入和人工改稿版本")
+    return {"stale": changed, "source_drift": [row["file_id"] for row in drifted]}
 
 
 def _chunks(blocks: list[dict], character_budget: int) -> list[list[dict]]:
@@ -194,7 +240,9 @@ def prepare(project, stage: str, target: str | None = None) -> dict:
         prior = {row["block_id"]: row["block_hash"] for row in project.load("analysis_coverage")}
         blocks = [block for block in blocks if prior.get(block["id"]) != json_hash(block)]
         # 中文按约每字符一个Token作保守估算，预算优先保障原文。
-        budget = max(500, int(settings.get("context_budget", 16000)) - 2000)
+        # 任务包还包含定位、来源和JSON Schema。只把约65%的总预算交给原文，
+        # 为序列化和结果约束预留空间，避免含复杂表格时反复超过预算。
+        budget = max(500, int((int(settings.get("context_budget", 16000)) - 2000) * 0.65))
         for group in _chunks(blocks, budget):
             deps = {"collections": {"blocks": [row["id"] for row in group]}, "scalars": []}
             payload = {"source_blocks": group, "existing_rule_ids": [rule["id"] for rule in rules]}
@@ -213,7 +261,8 @@ def prepare(project, stage: str, target: str | None = None) -> dict:
                 rules = [r for r in rules if r["id"] == target]
                 if not rules:
                     raise ValueError("没有找到所指定的招标要求")
-        for group in _chunks(blocks, max(500, int(settings.get("context_budget", 16000)) - 3000)):
+        evidence_budget = max(500, int((int(settings.get("context_budget", 16000)) - 3000) * 0.65))
+        for group in _chunks(blocks, evidence_budget):
             deps = {"collections": {"blocks": [b["id"] for b in group], "rules": [r["id"] for r in rules]}, "scalars": ["facts"]}
             specs.append(({"rules": rules, "source_blocks": group, "facts": project.load("facts", {}), "existing_evidence_ids": [e["id"] for e in project.load("evidence")]}, deps, None))
     elif stage == "plan":
@@ -378,6 +427,18 @@ def accept(project, task_id: str, result: str | Path | dict, actor: str) -> dict
         covered = [row for row in project.load("analysis_coverage") if row["block_id"] not in assigned]
         covered.extend({"id": bid, "block_id": bid, "block_hash": json_hash(blocks[bid]), "task_id": task_id, "actor": actor} for bid in sorted(assigned))
         changes["analysis_coverage"] = covered
+        # 覆盖归属与原任务输入分别记录，保留历史依赖及指纹以便追溯。
+        for other in tasks:
+            if other["id"] == task_id or other.get("stage") not in {"analyze", "amendment"}:
+                continue
+            declared = set(other["dependencies"]["collections"].get("blocks", []))
+            handover = declared & assigned
+            if not handover:
+                continue
+            other["handover_to"] = {**other.get("handover_to", {}), task_id: sorted(handover)}
+            if other.get("status") == "pending":
+                other.update(status="stale", stale_reason=f"分块已由 {task_id} 接管，请重新准备剩余分块")
+        changes["tasks"] = tasks
         if data["facts"]:
             proposals = project.load("fact_proposals", {})
             proposals.update(data["facts"])

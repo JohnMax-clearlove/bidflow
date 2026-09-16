@@ -17,7 +17,7 @@ def invoke(*args, cwd=None):
     return result, json.loads(stream)
 
 
-def test_doctor_and_project_cli_round_trip(tmp_path: Path):
+def test_doctor_and_project_cli_round_trip(tmp_path: Path, piped_subprocess):
     result, payload = invoke("doctor")
     assert result.returncode == 0 and payload["ok"]
     assert payload["result"]["model_api_required"] is False
@@ -36,7 +36,7 @@ def test_doctor_and_project_cli_round_trip(tmp_path: Path):
     assert payload["result"]["results"][0]["status"] == "manual_required"
 
 
-def test_cli_errors_are_machine_readable_and_do_not_traceback(tmp_path: Path):
+def test_cli_errors_are_machine_readable_and_do_not_traceback(tmp_path: Path, piped_subprocess):
     project = tmp_path / "不存在"
     result, payload = invoke("status", "--project", project)
     assert result.returncode == 1 and payload["ok"] is False

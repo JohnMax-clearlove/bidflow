@@ -26,3 +26,4 @@ bidflow = ["assets/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# 受限环境的临时目录适配按需使用 python tests/run_tests.py，普通 pytest 保留默认行为。

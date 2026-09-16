@@ -168,9 +168,14 @@ def test_changed_source_hash_invalidates_evidence(tmp_path):
 
 def test_reports_include_bid_spec_and_technical_matrix(tmp_path):
     project = base_project(tmp_path)
+    project.save("fact_proposals", {"deadline": "2026-12-31"})
+    project.save("setting_proposals", {"expected_total_score": 100})
     result = render_reports(project)
     relative = {Path(path).relative_to(project.root).as_posix() for path in result["paths"]}
     assert "02_招标拆解/bid_spec.json" in relative
     assert "04_技术标策划/技术评分响应矩阵.md" in relative
     assert "04_技术标策划/技术标策划.md" in relative
     assert project.safe_path("03_资料匹配/待补资料及借阅清单.md").is_file()
+    spec = __import__("json").loads(project.safe_path("02_招标拆解/bid_spec.json").read_text(encoding="utf-8"))
+    assert spec["proposed_facts"]["deadline"] == "2026-12-31"
+    assert spec["proposed_settings"]["expected_total_score"] == 100

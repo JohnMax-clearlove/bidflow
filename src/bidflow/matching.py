@@ -746,8 +746,10 @@ def render_reports(project) -> dict:
         "generated_at": utc_now(),
         "source": ".bidflow/records中的当前主记录，可由主记录重建",
         "project": project.meta,
-        "facts": project.load("facts", {}),
-        "settings": project.load("settings", {}),
+        "confirmed_facts": project.load("facts", {}),
+        "proposed_facts": project.load("fact_proposals", {}),
+        "confirmed_settings": project.load("settings", {}),
+        "proposed_settings": project.load("setting_proposals", {}),
         "rules": project.load("rules", []),
         "analysis_coverage": project.load("analysis_coverage", []),
     })
