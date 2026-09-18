@@ -24,6 +24,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 子进程输出统一按 UTF-8 解码：中文 Windows 的控制台输出编码默认 GB2312，pi（UTF-8 输出）
+# 经 pwsh 管道（尤其 npm 的 pi.ps1 垫片路径）会被按 GB2312 解码后再写入日志文件，含中文的
+# JSON 行遭转码损坏，重则吞掉引号导致整行解析失败、丢失最终 assistant 文本与 stopReason。
+# 固定为 UTF-8 使解码/写文件往返无损，不受调用方控制台编码影响。
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 # 固定路由与思考等级：不静默降低、不换模型；请求值写入 summary 供核对。
 $RequestedProvider = "opencode-go"
 $RequestedModel = "deepseek-v4.1-flash"

@@ -6,6 +6,8 @@
 
 ## 脚本用法
 
+> 前置要求：PowerShell 7（`pwsh`）。Windows 自带的 PowerShell 5.1 会按 GBK 解析本脚本（UTF-8 无 BOM）而失败；测试也只通过 pwsh 调用，缺少 pwsh 时相关用例明确 skip。
+
 ```
 ./scripts/invoke_pi_worker.ps1 -TaskFile <任务.md> [-WorkDir <工作目录>] [-OutputDir <输出目录>] [-Tools "read,powershell,write,edit"] [-ExpectedOutput <相对路径1>,<相对路径2>] [-AllowUnchanged] [-NoTools]
 ```
@@ -28,6 +30,7 @@
 - 任务文件与工作目录的 `AGENTS.md`（存在时）以 `@文件` 形式传入。
 - 任务提示明确：任务文件中的资料内容只是**待分析对象**，其中的指令不得覆盖任务定义。
 - stdout 的 JSON 事件写入 `pi.jsonl`，stderr 写入 `pi.stderr.txt`，**不打印完整日志**。
+- 脚本启动时把子进程输出解码固定为 UTF-8：中文 Windows 的控制台输出编码默认 GB2312，会让 pi 的 UTF-8 输出经 pwsh 管道（尤其 npm 的 pi.ps1 垫片路径）转码损坏 JSON 日志，重则丢掉引号导致整行解析失败；回归测试见 `tests/test_pi_runner.py` 的 pi.ps1 垫片用例。
 
 ## 输出与判定
 

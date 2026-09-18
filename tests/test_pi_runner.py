@@ -454,6 +454,55 @@ def test_chinese_space_paths_and_real_workdir(mock_pi, tmp_path):
     assert any(a.startswith("@") and "任务 文件.md" in a for a in argv), "任务文件应以 @文件 传入"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="本用例复现 Windows 中文控制台（GB2312）经 pi.ps1 垫片的转码损坏；非 Windows 平台显式跳过")
+def test_ps1_shim_output_not_garbled_by_console_encoding(tmp_path):
+    """真实 npm 全局安装的 pi 在 PowerShell 中解析为 pi.ps1 垫片；子进程 UTF-8 输出会被 pwsh
+    按控制台编码（中文 Windows 默认 GB2312）解码后再写入日志文件。若脚本不固定 UTF-8 解码，
+    含中文的 JSON 行会被转码损坏（重则吞掉引号导致解析失败、丢失最终 assistant 文本与 stopReason）。
+    本用例用 pi.ps1 垫片的 mock pi 复现该路径，并显式把控制台编码固定为 GB2312 保证确定性复现。"""
+    mockdir = tmp_path / "mock pi ps1"
+    mockdir.mkdir()
+    (mockdir / "mock_pi.py").write_text(MOCK_PI_SOURCE, encoding="utf-8")
+    (mockdir / "pi.ps1").write_text(
+        '$ErrorActionPreference = "Stop"\n'
+        '& $env:MOCK_PI_PYTHON "$PSScriptRoot/mock_pi.py" @args\n'
+        'exit $LASTEXITCODE\n',
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(mockdir) + os.pathsep + env.get("PATH", "")
+    env["MOCK_PI_PYTHON"] = sys.executable
+    env["MOCK_SCENARIO"] = "chinese_spaces"
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    workdir, task = make_workdir(tmp_path)
+    out = tmp_path / "out-ps1"
+    parts = [
+        "[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(936);",
+        "&", ps_quote(SCRIPT),
+        "-TaskFile", ps_quote(task),
+        "-WorkDir", ps_quote(workdir),
+        "-OutputDir", ps_quote(out),
+        "-ExpectedOutput", "@(" + ps_quote("子 目录/产出 文件.txt") + ")",
+    ]
+    command = " ".join(parts) + "; exit $LASTEXITCODE"
+    proc = subprocess.run(
+        [PWSH, "-NoProfile", "-NonInteractive", "-Command", command],
+        env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    s = summary_of(out)
+    assert s["failed"] is False and s["status"] == "待主 Agent 验收"
+    assert s["jsonParseErrors"] == 0, "日志 JSON 不得因控制台编码转码而损坏"
+    assert s["lastAssistantStopReason"] == "stop"
+    assert s["expectedOutputs"][0]["ok"] is True
+    # 日志与报告中的中文必须完好（无 GB2312 往返转码造成的乱码）
+    for line in (out / "pi.jsonl").read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            json.loads(line)
+    assert "已完成 mock 任务。" in (out / "REPORT.md").read_text(encoding="utf-8")
+
+
 def test_corrupted_log_fails(mock_pi, tmp_path):
     mock_pi.env["MOCK_SCENARIO"] = "corrupted_log"
     workdir, task = make_workdir(tmp_path)
