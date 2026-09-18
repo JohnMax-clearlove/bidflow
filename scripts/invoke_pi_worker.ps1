@@ -2,6 +2,8 @@
 .SYNOPSIS
   以非交互方式调用本机 pi 执行子任务，解析 JSONL 日志、校验期望产物并产出汇总。
 .DESCRIPTION
+  本脚本仅用于本仓库开发期的主 Agent→pi 派工；BidFlow 的使用端不需要它，
+  任何宿主 Agent 都可以直接驱动 bidflow 命令。
   通过参数数组调用 Get-Command pi 得到的命令，不使用 Invoke-Expression 或拼接命令字符串。
   固定路由 opencode-go/deepseek-v4.1-flash 与 --thinking max，不改动用户全局 pi 设置。
   可选 -ExpectedOutput 在运行前后记录期望产物的存在/大小/哈希变化，未满足即判失败；

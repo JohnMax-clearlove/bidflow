@@ -22,7 +22,7 @@
 .\.venv\Scripts\bidflow.exe task prepare analyze --project ".\projects\合成咨询服务投标"
 ```
 
-最后一条命令只生成拆标任务包。接下来在 Codex 中打开 `projects/合成咨询服务投标`，说：
+最后一条命令只生成拆标任务包。接下来在任意 Agent 中打开 `projects/合成咨询服务投标`，说：
 
 > 请处理全部 pending 的 analyze 任务。逐个读取 context.json，按 result_schema 生成 result.json 并用实际执行者标识接收。完成后生成拆标报告，先让我核对规则。
 

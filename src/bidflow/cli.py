@@ -186,7 +186,7 @@ def run(args) -> dict:
         path = Path(args.path) if args.path else Path("projects") / safe_name(args.name)
         library = args.library or (str(Path("company_library").resolve()) if Path("company_library/.bidflow/project.json").exists() else None)
         project = Project.create(path, args.name, library)
-        return {"project": str(project.root), "status": "已创建", "next": "在Codex中打开此项目文件夹，放入招标文件后开始拆标"}
+        return {"project": str(project.root), "status": "已创建", "next": "在任意 Agent（Codex、Claude Code、Qoder、Trae、WorkBuddy、千问办公等均可）中打开此项目文件夹，放入招标文件后开始拆标"}
     if args.command == "doctor":
         return doctor()
     if args.command == "schemas":
