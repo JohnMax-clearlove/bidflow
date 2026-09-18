@@ -36,6 +36,12 @@ def base_project(tmp_path: Path) -> Project:
         {"id": "T001", "kind": "technical", "title": "技术方案", "text": "技术方案说明工作步骤和质量复核", "sources": source("技术方案说明工作步骤和质量复核"), "status": "confirmed", "revision": 1, "max_score": 10, "subrequirements": ["工作步骤", "质量复核"]},
     ]
     project.commit({"files": files, "blocks": blocks, "rules": rules, "facts": {"project_name": "证据链合成测试", "company_name": "测试公司", "deadline": "2026-12-31", "service_period": "60日", "price": "10000"}}, reason="建立合成测试基准")
+    coverage = [
+        {"id": f"ECOV{number:03d}", "task_id": "TEST", "block_id": block["id"], "block_hash": json_hash(block),
+         "file_id": block["file_id"], "file_sha256": next(row["sha256"] for row in files if row["id"] == block["file_id"])}
+        for number, block in enumerate(blocks, 1) if block["file_id"] != "DOC_T"
+    ]
+    project.save("evidence_coverage", coverage, reason="建立合成测试证据覆盖基准")
     return project
 
 
@@ -102,6 +108,11 @@ def test_low_quality_page_requires_visual_confirmation(tmp_path):
     blocks = project.load("blocks")
     blocks[1]["quality"] = "review"
     project.save("blocks", blocks)
+    coverage = project.load("evidence_coverage")
+    for row in coverage:
+        if row["block_id"] == "B_E1":
+            row["block_hash"] = json_hash(blocks[1])
+    project.save("evidence_coverage", coverage, reason="合成测试：页面质量变化后更新覆盖哈希")
     item = evidence(project)
     project.save("evidence", [item])
     project.save("responses", [response("R1", "Q001", ["E001"], staff_id="STAFF1", project_id="P1")])

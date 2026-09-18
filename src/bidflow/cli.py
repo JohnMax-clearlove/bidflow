@@ -57,10 +57,12 @@ def _parser():
     accept.add_argument("--task", required=True)
     accept.add_argument("--result", required=True)
     accept.add_argument("--actor", required=True, help="实际执行Agent或人工标识")
+    accept.add_argument("--actor-kind", choices=["agent", "human"], default="agent", help="实际执行者类别；仅作流程记录")
     confirm = _common(sub.add_parser("confirm", help="记录用户对当前版本的明确确认"))
     confirm.add_argument("scope", choices=["rules", "selection", "brief", "plan", "draft", "assembly", "visual"])
     confirm.add_argument("--actor", required=True)
     confirm.add_argument("--notes", default="")
+    confirm.add_argument("--attest-human", action="store_true", help="显式声明本次为用户确认后录入；这是流程声明，不是身份认证")
     data = sub.add_parser("data", help="导入人工整理的数据，不通过此入口改招标规则").add_subparsers(dest="action", required=True)
     show = _common(data.add_parser("show"))
     show.add_argument("collection")
@@ -68,6 +70,7 @@ def _parser():
     imp.add_argument("collection", choices=["facts", "settings", "staff", "history", "forms", "manual_checks"])
     imp.add_argument("source")
     imp.add_argument("--actor", required=True)
+    imp.add_argument("--attest-human", action="store_true", help="manual_checks人工确认时必须显式声明由用户确认后录入")
     form = _common(sub.add_parser("form", help="填写已核准的招标表单模板"))
     form.add_argument("id")
     build = _common(sub.add_parser("build", help="生成审阅稿或封存已确认成品"))
@@ -86,6 +89,32 @@ def _parser():
     connector.add_argument("--limit", type=int, default=20)
     recover = _common(sub.add_parser("recover", help="在原写入进程已终止后恢复项目日志"))
     recover.add_argument("--pid", type=int, required=True, help="锁文件记录的旧进程号，必须已终止")
+    final = sub.add_parser("final-review", help="成品双审：人工与Agent对同一锁定成品独立核查")
+    final_sub = final.add_subparsers(dest="action", required=True)
+    final_start = _common(final_sub.add_parser("start", help="锁定成品PDF并发起内容或签章双审"))
+    final_start.add_argument("--stage", choices=["content", "signed"], default="content")
+    final_start.add_argument("--pdf", action="append", default=[], help="外部PDF，可重复；与--assembly二选一")
+    final_start.add_argument("--assembly", action="store_true", help="引用当前已分页组卷成品")
+    final_start.add_argument("--writer", required=True, help="成品编制者标识writer")
+    final_start.add_argument("--parent", help="signed阶段关联的已通过content双审ID")
+    final_prepare = _common(final_sub.add_parser("prepare", help="生成某条lane的独立任务包或人工清单"))
+    final_prepare.add_argument("review_id")
+    final_prepare.add_argument("--lane", choices=["human", "agent"], required=True)
+    final_submit = _common(final_sub.add_parser("submit", help="提交某条lane的核查结果"))
+    final_submit.add_argument("review_id")
+    final_submit.add_argument("--lane", choices=["human", "agent"], required=True)
+    final_submit.add_argument("--result", required=True)
+    final_submit.add_argument("--actor", required=True)
+    final_submit.add_argument("--attest-human", action="store_true", help="人工结果必须由主Agent在用户确认后显式声明")
+    final_status = _common(final_sub.add_parser("status", help="查看双审阶段、覆盖缺口和新鲜度"))
+    final_status.add_argument("review_id", nargs="?")
+    final_finalize = _common(final_sub.add_parser("finalize", help="复算覆盖并记录双审结论"))
+    final_finalize.add_argument("review_id")
+    final_submission = _common(final_sub.add_parser("submission", help="逐项记录提交前人工检查"))
+    final_submission.add_argument("review_id")
+    final_submission.add_argument("--result", required=True)
+    final_submission.add_argument("--actor", required=True)
+    final_submission.add_argument("--attest-human", action="store_true")
     return parser
 
 
@@ -166,6 +195,9 @@ def run(args) -> dict:
         return init_library(args.path)
     if args.command == "recover":
         return _recover(args.project, args.pid)
+    if args.command == "final-review":
+        from . import final_review
+        return final_review.cli(args)
     project = Project(args.project)
     if args.command == "status":
         workflow.sync(project)
@@ -224,15 +256,19 @@ def run(args) -> dict:
         path = Path(args.result)
         if not path.is_absolute() and not path.exists():
             path = project.safe_path(path)
-        return workflow.accept(project, args.task, path, args.actor)
+        return workflow.accept(project, args.task, path, args.actor, args.actor_kind)
     if args.command == "confirm":
-        return workflow.confirm(project, args.scope, args.actor, args.notes)
+        return workflow.confirm(project, args.scope, args.actor, args.notes, args.attest_human)
     if args.command == "data":
         if args.action == "show":
             return {"collection": args.collection, "records": project.load(args.collection, {} if args.collection in {"facts", "settings"} else [])}
         value = read_json(args.source)
         if value is None:
             raise ValueError("数据文件不存在")
+        if args.collection == "manual_checks":
+            result = workflow.import_manual_checks(project, value, args.actor, args.attest_human)
+            workflow.sync(project)
+            return {"collection": "manual_checks", **result}
         if args.collection in {"facts", "settings"}:
             if not isinstance(value, dict):
                 raise ValueError("facts/settings须为JSON对象")

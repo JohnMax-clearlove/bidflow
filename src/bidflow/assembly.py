@@ -14,7 +14,10 @@ import subprocess
 
 from .utils import atomic_json, json_hash, sha256_file, utc_now, write_text
 
-INPUT_COLLECTIONS = ("rules", "evidence", "responses", "sections", "forms", "facts", "settings", "plans", "reviews", "files", "manual_checks")
+INPUT_COLLECTIONS = ("rules", "evidence", "responses", "sections", "forms", "facts", "settings", "plans", "reviews", "files")
+
+# manual_checks、confirmations、reviews之外的最终审核簿记不进入组卷输入指纹，
+# 避免“先确认组卷、再补人工检查”导致确认自我失效形成循环。
 
 
 def assembly_fingerprint(project) -> str:
@@ -35,7 +38,14 @@ def visual_fingerprint(project) -> str:
 
 
 def _confirmed(project, scope, fingerprint) -> bool:
-    return any(item.get("scope") == scope and item.get("fingerprint") == fingerprint and item.get("actor") for item in project.load("confirmations", []))
+    return any(
+        item.get("scope") == scope
+        and item.get("fingerprint") == fingerprint
+        and item.get("actor")
+        and item.get("actor_kind") == "human"
+        and item.get("attestation") == "human"
+        for item in project.load("confirmations", [])
+    )
 
 
 def _integrity_errors(project):
@@ -374,6 +384,12 @@ def _ready(project):
         if issue.get("status", "open") == "open" and issue.get("severity") == "error":
             errors.append("终审阻断项：" + issue.get("message", issue.get("id", "")))
     errors += assembly.get("errors", [])
+    # 待签章定稿必须先对本程序组卷成品完成人工与Agent的内容双审；
+    # 不能只靠 assembly/visual 两个确认绕过新门槛。
+    from .final_review import assembly_gate
+    gate = assembly_gate(project)
+    if not gate["ok"]:
+        errors.append("待签章定稿需要当前组卷成品的内容双审通过：" + gate["reason"])
     # 组卷成功只证明版式链路可用。资格、证据、技术复核、表单和一致性
     # 仍须通过当前主记录重新审核，不能靠旧报告或单独的组卷确认绕过。
     from .matching import audit
@@ -395,20 +411,33 @@ def _ready(project):
     old_to_new = {}
     for output in assembly["outputs"]:
         for kind in ("docx", "pdf"):
-            original = project.safe_path(output[kind])
+            relative = output.get(kind)
+            if not relative:
+                continue
+            original = project.safe_path(relative)
             copied = destination / original.name
             if copied.exists() and sha256_file(copied) != sha256_file(original):
                 raise ValueError(f"最终输出已有不同内容，保留人工文件：{copied.name}")
             if original.resolve() != copied.resolve():
                 shutil.copy2(original, copied)
-            relative = copied.relative_to(project.root).as_posix()
-            old_to_new[output[kind]] = relative
-            output[kind] = relative
+            new_relative = copied.relative_to(project.root).as_posix()
+            old_to_new[relative] = new_relative
+            output[kind] = new_relative
     positions = project.load("positions", [])
     for position in positions:
         position["output_path"] = old_to_new.get(position.get("output_path"), position.get("output_path"))
-    assembly.update({"mode": "ready", "status": "ready_for_signature", "signature_status": "pending", "published_at": utc_now(), "verified": True, "manual_checks": project.load("manual_checks", [])})
-    project.commit({"positions": positions, "assembly": assembly}, reason="按已确认审阅稿原字节输出待签章定稿")
+    assembly.update({"mode": "ready", "status": "ready_for_signature", "signature_status": "pending", "published_at": utc_now(), "verified": True, "final_review_id": gate["review_id"], "manual_checks": project.load("manual_checks", [])})
+    # 待签章成品单独锁存快照；后续build review覆盖assembly记录时，旧ready成品仍可追溯。
+    hashes = {}
+    for output in assembly["outputs"]:
+        hashes[output["volume"]] = {kind: sha256_file(project.safe_path(output[kind])) for kind in ("docx", "pdf") if output.get(kind) and project.safe_path(output[kind]).is_file()}
+    history = project.load("ready_history", [])
+    snapshot = {"id": "READY-" + str(assembly.get("run_id")), "run_id": assembly.get("run_id"), "at": utc_now(),
+                "outputs": [{"volume": output["volume"], "docx": output.get("docx"), "pdf": output.get("pdf")} for output in assembly["outputs"]],
+                "hashes": hashes, "positions": positions, "final_review_id": gate["review_id"],
+                "signature_status": "pending", "input_fingerprint": fingerprint}
+    history = [row for row in history if row.get("run_id") != snapshot["run_id"]] + [snapshot]
+    project.commit({"positions": positions, "assembly": assembly, "ready_history": history}, reason="按已确认审阅稿原字节输出待签章定稿")
     return assembly
 
 
@@ -610,7 +639,11 @@ def verify_output(project) -> dict:
     positions = {(row["volume"], row["target_id"]): row for row in project.load("positions", [])}
     for output in assembly.get("outputs", []):
         volume = output["volume"]
-        pdf, docx = project.safe_path(output["pdf"]), project.safe_path(output["docx"])
+        pdf_value, docx_value = output.get("pdf"), output.get("docx")
+        if not pdf_value or not docx_value:
+            errors.append(f"{volume} 缺少Word或PDF路径记录，无法核验")
+            continue
+        pdf, docx = project.safe_path(pdf_value), project.safe_path(docx_value)
         if not pdf.is_file() or not docx.is_file():
             errors.append(f"{volume} 的 Word 或 PDF 文件缺失")
             continue

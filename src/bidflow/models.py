@@ -72,6 +72,14 @@ class Response(Record):
 class EvidenceResult(Record):
     evidence: list[Evidence] = Field(default_factory=list)
     responses: list[Response] = Field(default_factory=list)
+    covered_block_ids: list[str] = Field(min_length=1, description="本任务全部分块的核查覆盖；必须与任务assigned完全一致。")
+    no_evidence_reason: str = ""
+
+    @model_validator(mode="after")
+    def empty_evidence_requires_reason(self):
+        if not self.evidence and not self.no_evidence_reason.strip():
+            raise ValueError("未提交任何有效材料时必须说明全块核查后无有效证据的理由")
+        return self
 
 
 class SectionPlan(Record):
@@ -103,6 +111,17 @@ class ReviewFinding(Record):
     message: str
     suggestion: str
     location: str
+    finding_id: str | None = Field(default=None, description="稳定问题编号；由程序分配或沿用prior_open_findings。")
+    state: Literal["open", "resolved"] = "open"
+    resolution_refs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class FindingResolution(Record):
+    finding_id: str = Field(min_length=1)
+    basis: str = Field(min_length=1, description="关闭该发现的核对依据，不能只写“已修改”。")
+    evidence_ids: list[str] = Field(default_factory=list)
+    location: str = Field(min_length=1, description="当前正文或材料中的实际定位。")
+    section_sha256: str = ""
 
 
 class ReviewResult(Record):
@@ -110,6 +129,7 @@ class ReviewResult(Record):
     reviewer_id: str = Field(min_length=1)
     writer_id: str = Field(min_length=1)
     findings: list[ReviewFinding]
+    resolutions: list[FindingResolution] = Field(default_factory=list, description="对历轮未关闭发现的复核关闭声明；由独立Reviewer提交。")
     scores: list[dict[str, Any]]
     covered_subrequirements: dict[str, list[str]] = Field(
         default_factory=dict,

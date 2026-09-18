@@ -14,6 +14,7 @@ from bidflow.forms import fill_form, price_upper
 from bidflow.project import Project
 from bidflow.utils import json_hash, sha256_file, write_text
 from bidflow.workflow import confirm
+from final_review_helpers import complete_content
 
 
 def make_project(root):
@@ -72,6 +73,8 @@ def make_project(root):
     })
     filled = fill_form(project, "FORM001")
     assert not filled["errors"]
+    evidence_block = next(row for row in project.load("blocks") if row["id"] == "B_EVIDENCE")
+    project.save("evidence_coverage", [{"id": "ECOV001", "task_id": "TEST_EVIDENCE", "block_id": "B_EVIDENCE", "block_hash": json_hash(evidence_block), "file_id": "DOC_TEST", "file_sha256": sha256_file(image_path)}], reason="合成测试：登记证据覆盖")
     forms = project.load("forms")
     forms[0]["status"] = "confirmed"
     project.save("forms", forms)
@@ -80,11 +83,11 @@ def make_project(root):
         {"id": "REV001", "section_id": "SEC001", "writer_id": "writer", "reviewer_id": "reviewer", "section_sha256": sha256_file(first), "rule_revisions": {"T001": 1}, "facts_fingerprint": current_facts, "round": 1, "status": "pass", "scores": [{"rule_id": "T001", "score": 8, "reason": "测试评分"}], "covered_subrequirements": {"T001": ["步骤完整"]}, "findings": []},
         {"id": "REV002", "section_id": "SEC002", "writer_id": "writer", "reviewer_id": "reviewer", "section_sha256": sha256_file(second), "rule_revisions": {"T002": 1}, "facts_fingerprint": current_facts, "round": 1, "status": "pass", "scores": [{"rule_id": "T002", "score": 4, "reason": "测试评分"}], "covered_subrequirements": {"T002": ["三级复核"]}, "findings": []},
     ])
-    confirm(project, "rules", "测试规则确认")
-    confirm(project, "selection", "测试材料确认")
-    confirm(project, "brief", "测试正文沟通确认")
-    confirm(project, "plan", "测试策划确认")
-    confirm(project, "draft", "测试正文确认")
+    confirm(project, "rules", "测试规则确认", attest_human=True)
+    confirm(project, "selection", "测试材料确认", attest_human=True)
+    confirm(project, "brief", "测试正文沟通确认", attest_human=True)
+    confirm(project, "plan", "测试策划确认", attest_human=True)
+    confirm(project, "draft", "测试正文确认", attest_human=True)
     return project
 
 
@@ -168,16 +171,19 @@ def test_real_word_split_repaginate_and_ready(tmp_path):
     reviews[0]["id"] = "REV003"
     reviews[0]["round"] = 2
     project.save("reviews", reviews)
-    confirm(project, "draft", "测试正文再次确认")
+    confirm(project, "draft", "测试正文再次确认", attest_human=True)
     second = build(project, split=True)
     assert second["verified"], second["errors"]
     after = {row["target_id"]: row["pdf_page"] for row in project.load("positions")}
     assert after["SEC002"] > before["SEC002"]
-    confirm(project, "assembly", "合成测试确认者")
-    confirm(project, "visual", "合成测试确认者")
+    confirm(project, "assembly", "合成测试确认者", attest_human=True)
+    confirm(project, "visual", "合成测试确认者", attest_human=True)
+    # 待签章门禁要求当前组卷成品先完成人工与Agent的内容双审。
+    content_review = complete_content(project, writer="writer", agent="成品双审Agent", human="成品人工复核人")
     hashes = [dict(output["hashes"]) for output in second["outputs"]]
     published = build(project, mode="ready")
     assert published["status"] == "ready_for_signature" and published["signature_status"] == "pending"
+    assert published["final_review_id"] == content_review
     assert [output["hashes"] for output in published["outputs"]] == hashes
     assert verify_output(project)["status"] == "passed"
     assert all(output["docx"].startswith("07_最终输出/") for output in published["outputs"])

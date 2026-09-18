@@ -14,6 +14,7 @@ from bidflow.matching import audit, score
 from bidflow.project import Project
 from bidflow.utils import write_text
 from bidflow.workflow import accept, confirm, prepare
+from final_review_helpers import complete_content
 
 
 @pytest.mark.skipif(os.environ.get("BIDFLOW_WORD_TEST") != "1", reason="需要显式执行真实Microsoft Word闭环")
@@ -36,7 +37,7 @@ def test_complete_agent_driven_bid_workflow(tmp_path: Path):
         "settings": {"anonymous": False, "allow_indices": True, "expected_total_score": 13},
         "conflicts": [], "retire_rule_ids": [],
     }, "拆标Agent")
-    confirm(project, "rules", "规则确认人")
+    confirm(project, "rules", "规则确认人", attest_human=True)
 
     image_path = tmp_path / "合成证照.png"
     image = Image.new("RGB", (1200, 800), "white")
@@ -47,13 +48,14 @@ def test_complete_agent_driven_bid_workflow(tmp_path: Path):
     proof_result = ingest(project, image_path, "公司证照")
     evidence_task = prepare(project, "evidence", proof_result["file_id"])["created"][0]["id"]
     accept(project, evidence_task, {
+        "covered_block_ids": [block["id"] for block in project.load("blocks") if block["file_id"] == proof_result["file_id"]],
         "evidence": [{"id": "E001", "file_id": proof_result["file_id"], "title": "合成测试证照", "pages": [1], "facts": {"company_name": "合成测试公司", "document_type": "法人证照"}, "verification": "verified", "notes": "已查看合成原图", "visually_verified": True}],
         "responses": [
             {"id": "RESP_Q", "rule_id": "Q001", "evidence_ids": ["E001"], "section_ids": [], "status": "supported", "rationale": "证照原图显示测试主体", "rule_revision": 1},
             {"id": "RESP_S", "rule_id": "S001", "evidence_ids": ["E001"], "section_ids": [], "status": "supported", "rationale": "同一证照支撑商务固定分", "rule_revision": 1},
         ],
     }, "证据Agent")
-    confirm(project, "selection", "材料选择确认人")
+    confirm(project, "selection", "材料选择确认人", attest_human=True)
     assert score(project)["business_supported_score"] == 3
 
     plan_task = prepare(project, "plan")["created"][0]["id"]
@@ -66,23 +68,26 @@ def test_complete_agent_driven_bid_workflow(tmp_path: Path):
         "sources": ["合成招标文件", "确认项目事实"], "structure": ["工作步骤", "质量复核"], "length": "短篇测试", "tone": "正式直接",
     }
     project.save("facts", facts)
-    confirm(project, "brief", "正文沟通确认人")
-    confirm(project, "plan", "技术策划确认人")
+    confirm(project, "brief", "正文沟通确认人", attest_human=True)
+    confirm(project, "plan", "技术策划确认人", attest_human=True)
 
     write_task = prepare(project, "write", "SEC001")["created"][0]["id"]
     accept(project, write_task, {"section_id": "SEC001", "writer_id": "writer", "markdown": "# 工作方案\n\n## 工作步骤\n\n项目按资料核对、分析、编制和复核四个阶段推进。\n\n## 质量复核\n\n成果执行编制、校核、审核三级复核，并保留测试记录。", "covered_subrequirements": {"T001": ["工作步骤", "质量复核"]}}, "writer")
     review_task = prepare(project, "review", "SEC001")["created"][0]["id"]
     accept(project, review_task, {"section_id": "SEC001", "writer_id": "writer", "reviewer_id": "reviewer", "findings": [], "scores": [{"rule_id": "T001", "score": 9, "reason": "合成测试正文覆盖两个子要求"}], "covered_subrequirements": {"T001": ["工作步骤", "质量复核"]}, "status": "pass"}, "reviewer")
-    confirm(project, "draft", "正文定稿确认人")
+    confirm(project, "draft", "正文定稿确认人", attest_human=True)
     before = audit(project)
     assert not any(issue["category"] in {"coverage", "evidence", "section", "review", "score"} for issue in before["issues"])
 
     review_build = build(project, mode="review", split=True, render=True)
     assert review_build["rendered"] and review_build["verified"] and len(review_build["outputs"]) == 2
     assert verify_output(project)["status"] == "passed"
-    confirm(project, "assembly", "组卷内容确认人")
-    confirm(project, "visual", "视觉验收确认人")
+    confirm(project, "assembly", "组卷内容确认人", attest_human=True)
+    confirm(project, "visual", "视觉验收确认人", attest_human=True)
+    # 组卷后人工与Agent并行内容双审，通过后才能生成待签章版。
+    content_review = complete_content(project, writer="writer", agent="成品双审Agent", human="成品人工复核人")
     ready = build(project, mode="ready")
     assert ready["status"] == "ready_for_signature" and ready["signature_status"] == "pending"
+    assert ready["final_review_id"] == content_review
     assert all(project.safe_path(output["docx"]).is_file() and project.safe_path(output["pdf"]).is_file() for output in ready["outputs"])
     assert all(output["docx"].startswith("07_最终输出/") for output in ready["outputs"])

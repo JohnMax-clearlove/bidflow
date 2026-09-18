@@ -33,7 +33,7 @@ def make_project(tmp_path: Path) -> Project:
         "retire_rule_ids": [],
     }
     accept(project, task, result, "规则分析Agent")
-    confirm(project, "rules", "规则确认人")
+    confirm(project, "rules", "规则确认人", attest_human=True)
     return project
 
 
@@ -59,8 +59,8 @@ def prepare_plan_and_brief(project: Project):
     facts = project.load("facts", {})
     facts["formal_brief"] = formal_brief()
     project.save("facts", facts, reason="记录正式文本沟通确认内容")
-    confirm(project, "brief", "正文确认人")
-    confirm(project, "plan", "策划确认人")
+    confirm(project, "brief", "正文确认人", attest_human=True)
+    confirm(project, "plan", "策划确认人", attest_human=True)
 
 
 def test_full_analysis_coverage_and_source_validation(tmp_path):
@@ -96,7 +96,7 @@ def test_amendment_preserves_prior_rule_and_invalidates_old_response(tmp_path):
     revised = next(row for row in project.load("rules") if row["id"] == "Q001")
     assert revised["revision"] == 2 and revised["previous_versions"][0]["revision"] == 1
     assert not is_confirmed(project, "rules")
-    confirm(project, "rules", "补遗确认人")
+    confirm(project, "rules", "补遗确认人", attest_human=True)
     assert "旧版规则" in str(match(project)["missing"])
 
 
@@ -104,14 +104,14 @@ def test_formal_brief_gate_and_manual_edit_conflict(tmp_path):
     project = make_project(tmp_path)
     task = prepare(project, "plan")["created"][0]["id"]
     accept(project, task, {"plans": [{"id": "SEC001", "title": "工作方案", "rule_ids": ["T001"], "content_points": ["工作步骤", "质量复核"]}]}, "策划Agent")
-    confirm(project, "plan", "策划确认人")
+    confirm(project, "plan", "策划确认人", attest_human=True)
     with pytest.raises(ValueError, match="正式文本沟通"):
         prepare(project, "write")
     facts = project.load("facts", {})
     facts["formal_brief"] = formal_brief()
     project.save("facts", facts)
-    confirm(project, "brief", "正文确认人")
-    confirm(project, "plan", "策划再次确认人")
+    confirm(project, "brief", "正文确认人", attest_human=True)
+    confirm(project, "plan", "策划再次确认人", attest_human=True)
     write_task = prepare(project, "write", "SEC001")["created"][0]["id"]
     path = project.safe_path("05_投标文件编制/SEC001_工作方案.md")
     write_text(path, "# 用户手工稿\n保留这段人工修改。\n")
@@ -161,7 +161,7 @@ def test_technical_response_does_not_invalidate_material_selection(tmp_path):
     evidence = [{"id": "E001", "title": "营业执照", "file_id": "DOC_PROOF", "file_sha256": sha256_file(proof), "pages": [1], "facts": {"company_name": "合成测试公司"}, "verification": "verified", "verified_by": "材料核验人"}]
     responses = [{"id": "RESP_Q", "rule_id": "Q001", "evidence_ids": ["E001"], "section_ids": [], "status": "supported", "rationale": "证明法人资格", "missing": [], "rule_revision": 1, "covered_subrequirements": []}]
     project.commit({"files": files, "evidence": evidence, "responses": responses})
-    confirm(project, "selection", "材料选择确认人")
+    confirm(project, "selection", "材料选择确认人", attest_human=True)
     assert is_confirmed(project, "selection")
     responses.append({"id": "RESP_T", "rule_id": "T001", "evidence_ids": [], "section_ids": ["SEC001"], "status": "supported", "rationale": "正文响应", "missing": [], "rule_revision": 1, "covered_subrequirements": ["工作步骤", "质量复核"]})
     project.save("responses", responses)

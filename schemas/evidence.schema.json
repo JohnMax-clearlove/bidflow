@@ -175,8 +175,25 @@
       },
       "title": "Responses",
       "type": "array"
+    },
+    "covered_block_ids": {
+      "description": "本任务全部分块的核查覆盖；必须与任务assigned完全一致。",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Covered Block Ids",
+      "type": "array"
+    },
+    "no_evidence_reason": {
+      "default": "",
+      "title": "No Evidence Reason",
+      "type": "string"
     }
   },
+  "required": [
+    "covered_block_ids"
+  ],
   "title": "EvidenceResult",
   "type": "object"
 }

@@ -16,7 +16,7 @@ from bidflow.utils import atomic_json, json_hash, read_json, sha256_file, utc_no
 
 STAGES = ["01_输入文件", "02_招标拆解", "03_资料匹配", "04_技术标策划", "05_投标文件编制", "06_审核检查", "07_最终输出"]
 INPUT_DIRS = ["01_招标文件", "02_公司证照", "03_公司资质", "04_荣誉奖项", "05_人员证书", "06_企业业绩证明", "07_人员业绩证明", "08_其他补充资料"]
-COLLECTIONS = {"files", "blocks", "rules", "evidence", "responses", "staff", "history", "plans", "sections", "reviews", "forms", "tasks", "confirmations", "manual_checks", "issues", "positions", "facts", "settings", "assembly", "analysis_coverage", "ledger_imports", "match_results", "staff_solutions"}
+COLLECTIONS = {"files", "blocks", "rules", "evidence", "responses", "staff", "history", "plans", "sections", "reviews", "forms", "tasks", "confirmations", "manual_checks", "issues", "positions", "facts", "settings", "assembly", "analysis_coverage", "ledger_imports", "match_results", "staff_solutions", "final_reviews", "evidence_coverage", "ready_history"}
 
 
 class Project:
@@ -144,8 +144,26 @@ class Project:
         confirmations = self.load("confirmations")
         facts = self.load("facts", {})
         status = {"project": self.meta["name"], "acceptance_status": self.meta["acceptance_status"], "files": len(self.load("files")), "rules": len([r for r in rules if r.get("status") != "retired"]), "evidence": len(self.load("evidence")), "sections": len(self.load("sections")), "pending_tasks": [{"id": task["id"], "stage": task["stage"], "status": task["status"]} for task in pending], "open_issues": len([issue for issue in issues if issue.get("status", "open") == "open"]), "confirmations": [{"scope": c["scope"], "actor": c["actor"], "at": c["at"]} for c in confirmations], "facts": facts}
+        final_reviews = self.load("final_reviews", [])
+        final_lines, final_summary = [], []
+        for row in final_reviews:
+            computed, lane_text = row.get("status", "pending"), ""
+            try:
+                from .final_review import evaluate as evaluate_final_review
+                state = evaluate_final_review(self, row)
+                computed = state["status"]
+                lane_text = "；" + "，".join(f"{lane} rev{state['lanes'][lane]['revision']}" for lane in ("human", "agent"))
+                final_lines.append(f"- {row['id']}（{row['stage']}，writer {row['writer']}）：{computed}{lane_text}；{state['next']}")
+            except Exception:
+                # 实时复算失败时不得回退展示旧缓存状态，避免把已失效的通过当成现状。
+                computed = "blocked"
+                final_lines.append(f"- {row['id']}（{row['stage']}）：blocked（实时状态复算失败，需人工核查记录完整性）")
+            final_summary.append({"id": row["id"], "stage": row["stage"], "status": computed})
+        status["final_reviews"] = final_summary
         lines = [f"# {self.meta['name']} 项目状态", "", f"版本状态：{self.meta['acceptance_status']}", "", f"输入文件 {status['files']} 份；招标要求 {status['rules']} 项；证明材料 {status['evidence']} 份；正文章节 {status['sections']} 章。", "", "## 当前待办", ""]
         lines += [f"- {t['id']}：{t['stage']}（{t['status']}）" for t in pending] or ["- 运行 `bidflow next --project .` 查看下一步。"]
+        lines += ["", "## 成品双审", ""]
+        lines += final_lines or ["- 尚无成品双审记录。组卷完成后运行 `bidflow final-review start --stage content --assembly --writer 编制者`，由人工与Agent独立核查。"]
         lines += ["", "## 已记录确认", ""]
         lines += [f"- {c['scope']}：{c['actor']}，{c['at']}；确认只对其记录版本有效。" for c in confirmations] or ["- 尚无人工确认。"]
         lines += ["", "## 人工处理事项", ""]

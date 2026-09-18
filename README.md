@@ -1,8 +1,10 @@
 # BidFlow
 
-BidFlow 是一套本地优先的咨询服务投标工作流。程序保管原件、拆分文件、检索资料、校验版本、测算证据支持分并生成 Word/PDF；需要理解招标语义、策划和写作的工作由当前 Codex Agent 完成。它不需要单独配置模型 API。
+BidFlow 是一套本地优先的咨询服务投标工作流。程序保管原件、拆分文件、检索资料、校验版本、测算证据支持分并生成 Word/PDF。主 Agent 负责分工与验收，默认由已配置的 pi 执行具体任务，人工完成必要确认。Python 程序本身不调用模型 API。
 
-当前版本为 `0.1.0`，状态是**待实标验收**。可以用公开合成资料验证流程，但在至少一个真实咨询服务项目完成逐项核对前，不能把测试通过理解为真实投标质量已经验收。
+当前版本为 `0.2.0`，状态是**待实标验收**。新版增加组卷后的人工与 Agent 独立双审，支持外部人工完成的 PDF。软件测试通过不等于真实投标项目已经全流程验收。
+
+从旧版继续项目时，原件和历史记录保留；缺少人工声明或版本依据的旧确认、证据覆盖和审核关闭记录会要求补核，不会直接沿用“已通过”。详见[成品双审](docs/成品双审.md)。
 
 ## 文件夹怎么放
 
@@ -113,26 +115,61 @@ bidflow task accept --project . --task TASK编号 --result .bidflow/tasks/TASK�
 
 ## 必须经过的确认
 
-确认只绑定当时的文件和主记录版本。补遗、证据更新、事实变更或人工改稿会使有关结果重新待核。
+确认只绑定当时的文件和主记录版本。补遗、证据更新、事实变更或人工改稿会使有关结果重新待核。所有 `confirm` 都必须带 `--attest-human`，表示由主 Agent 在用户明确确认后录入；这是流程声明，不是身份认证。没有 `actor_kind/attestation` 的旧确认记录不再视为满足当前门槛，需重新确认。
 
 | 确认范围 | 什么时候确认 | 命令 |
 |---|---|---|
-| `rules` | 所有招标分块已分析，规则、原文来源、冲突和提取事实已核对 | `bidflow confirm rules --actor 确认人 --project .` |
-| `selection` | 人员、业绩和证明材料选择已核对 | `bidflow confirm selection --actor 确认人 --project .` |
-| `brief` | 新正式文本已完成至少 5 个实质性问题及正文边界确认 | `bidflow confirm brief --actor 确认人 --project .` |
-| `plan` | 技术评分项全部进入策划，章节主线和范围已确认 | `bidflow confirm plan --actor 确认人 --project .` |
-| `draft` | 用户已经修改并确认当前 Markdown | `bidflow confirm draft --actor 确认人 --project .` |
-| `assembly` | 审阅组卷的内容和输入范围已确认 | `bidflow confirm assembly --actor 确认人 --project .` |
-| `visual` | 实际查看 Word/PDF，页码、表格、附件和跳转均无误 | `bidflow confirm visual --actor 确认人 --project .` |
+| `rules` | 所有招标分块已分析，规则、原文来源、冲突和提取事实已核对 | `bidflow confirm rules --actor 确认人 --attest-human --project .` |
+| `selection` | 人员、业绩和证明材料选择已核对 | `bidflow confirm selection --actor 确认人 --attest-human --project .` |
+| `brief` | 新正式文本已完成至少 5 个实质性问题及正文边界确认 | `bidflow confirm brief --actor 确认人 --attest-human --project .` |
+| `plan` | 技术评分项全部进入策划，章节主线和范围已确认 | `bidflow confirm plan --actor 确认人 --attest-human --project .` |
+| `draft` | 用户已经修改并确认当前 Markdown | `bidflow confirm draft --actor 确认人 --attest-human --project .` |
+| `assembly` | 审阅组卷的内容和输入范围已确认 | `bidflow confirm assembly --actor 确认人 --attest-human --project .` |
+| `visual` | 实际查看 Word/PDF，页码、表格、附件和跳转均无误 | `bidflow confirm visual --actor 确认人 --attest-human --project .` |
 
 ## 组卷边界
 
 - `bidflow build --mode review --project .` 生成审阅组卷；加 `--split` 生成分册。
 - `bidflow verify --project .` 核验实际 PDF 页数、书签、索引跳转和文件哈希。成功导出仍需人工视觉检查。
-- 完成 `assembly` 和 `visual` 确认后，`bidflow build --mode ready --project .` 才会把原字节复制到 `07_最终输出`，状态为“待签章”。
+- 完成 `assembly` 和 `visual` 确认还不够：当前组卷成品还必须通过人工与 Agent 并行的内容双审，`bidflow build --mode ready --project .` 才会把原字节复制到 `07_最终输出`，状态为“待签章”。
 - 暗标会被明确阻止，首版不编制暗标。
 - 签字盖章、授权有效性、保证金、上传和递交由人工完成，程序不签章、不提交投标。
 - 报价由用户确定；商务证据分、技术模拟分和报价评分分开显示，不承诺评委最终得分。
+
+## 成品双审（人工 + Agent）
+
+组卷完成后，可以直接对 Agent 说：
+
+> 我组卷好了，请对这份待签章PDF做成品双审。
+
+也可以说：
+
+> 这是外部人工排版好的待签章文件，请先锁定这份 PDF，再让我和 pi 分别独立核对，最后汇总问题清单。
+
+流程固定为：
+
+1. **锁定成品**：`bidflow final-review start --stage content --writer 编制者 --pdf 待签章.pdf`（或 `--assembly` 引用本程序组卷成品）。程序复制原件并记录哈希、页数和规则/证据版本，不改原件。
+2. **两条 lane 独立准备**：`prepare --lane human` 生成给用户看的人工核查清单，`prepare --lane agent` 生成给 pi 的任务包；两边不互相提供初稿或评分。
+3. **用户核对**：按清单逐项查看原页，填写结论和理由。
+4. **pi 独立核对**：pi 只依据锁定成品、规则原文和项目事实逐项核查。
+5. **主 Agent 汇总**：`finalize` 保留双方原始结论与分歧，列出所有未解决阻断项；需要修改时由主 Agent 说明并安排补证或改稿。
+6. **改版再核**：内容或证据改动后重新发起双审，旧通过失效；同一版本纠正误报时由该 lane 交新 revision 并保留原记录。
+7. **签章后再核**：签章 PDF 作为新快照，用 `--stage signed --parent 原内容双审ID` 重新双审，逐页对比签章版与内容版。
+8. **人工递交前确认**：装订、副本、介质（如 2 套 U 盘）、密封、递交地点时间等逐项确认，缺一仍 pending。
+
+常用命令：
+
+```powershell
+bidflow final-review start --project . --stage content --writer 编制者标识 --assembly
+bidflow final-review prepare --project . FR001 --lane agent
+bidflow final-review prepare --project . FR001 --lane human
+bidflow final-review submit --project . FR001 --lane agent --result "06_审核检查/成品双审/FR001/agent/B01/result.json" --actor 核查Agent
+bidflow final-review submit --project . FR001 --lane human --result "06_审核检查/成品双审/FR001/human/结果模板.json" --actor 人工复核人 --attest-human
+bidflow final-review finalize --project . FR001
+bidflow final-review status --project . FR001
+```
+
+程序不替代人工签章、不代为提交，也不承诺“保证不废标”“万无一失”。详细协议见 [成品双审](docs/成品双审.md)。
 
 ## 异常恢复和隐私
 
@@ -163,6 +200,7 @@ Word 自动化应在能正常使用桌面 Word 的 Windows 环境运行。沙箱
 - [文件导入、OCR、检索和台账](docs/文件导入.md)
 - [证据核验、计分和人员配置](docs/证据与计分.md)
 - [商务表单、组卷和输出核验](docs/组卷与表单.md)
+- [成品双审：人工与 Agent 独立核查](docs/成品双审.md)
 - [任务包、版本状态和恢复](docs/架构与状态.md)
 - [程序数据接口](docs/接口约定.md)
 - [首版完成与验收记录](docs/首版完成与验收.md)

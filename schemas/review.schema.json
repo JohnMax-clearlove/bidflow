@@ -1,5 +1,46 @@
 {
   "$defs": {
+    "FindingResolution": {
+      "additionalProperties": true,
+      "properties": {
+        "finding_id": {
+          "minLength": 1,
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "basis": {
+          "description": "关闭该发现的核对依据，不能只写“已修改”。",
+          "minLength": 1,
+          "title": "Basis",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "location": {
+          "description": "当前正文或材料中的实际定位。",
+          "minLength": 1,
+          "title": "Location",
+          "type": "string"
+        },
+        "section_sha256": {
+          "default": "",
+          "title": "Section Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "basis",
+        "location"
+      ],
+      "title": "FindingResolution",
+      "type": "object"
+    },
     "ReviewFinding": {
       "additionalProperties": true,
       "properties": {
@@ -27,6 +68,36 @@
         "location": {
           "title": "Location",
           "type": "string"
+        },
+        "finding_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "稳定问题编号；由程序分配或沿用prior_open_findings。",
+          "title": "Finding Id"
+        },
+        "state": {
+          "default": "open",
+          "enum": [
+            "open",
+            "resolved"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "resolution_refs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Resolution Refs",
+          "type": "array"
         }
       },
       "required": [
@@ -61,6 +132,14 @@
         "$ref": "#/$defs/ReviewFinding"
       },
       "title": "Findings",
+      "type": "array"
+    },
+    "resolutions": {
+      "description": "对历轮未关闭发现的复核关闭声明；由独立Reviewer提交。",
+      "items": {
+        "$ref": "#/$defs/FindingResolution"
+      },
+      "title": "Resolutions",
       "type": "array"
     },
     "scores": {

@@ -6,14 +6,16 @@
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import re
+import shutil
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from .utils import atomic_json, json_hash, sha256_file, utc_now, write_text
+from .utils import atomic_json, json_hash, read_json, sha256_file, utc_now, write_text
 
 
 def _number(value: Any, default: float = 0) -> float:
@@ -43,8 +45,10 @@ def _context(project) -> dict:
     result = {name: project.load(name, []) for name in names}
     result.update({name: project.load(name, {}) for name in ("facts", "settings", "assembly")})
     result["manual_checks"] = project.load("manual_checks", [])
+    result["evidence_coverage"] = project.load("evidence_coverage", [])
     result["files_by_id"] = {row["id"]: row for row in result["files"]}
     result["blocks_by_id"] = {row["id"]: row for row in result["blocks"]}
+    result["rules_by_id"] = {row["id"]: row for row in result["rules"]}
     result["evidence_by_id"] = {row["id"]: row for row in result["evidence"]}
     result["sections_by_id"] = {row["id"]: row for row in result["sections"]}
     result["forms_by_id"] = {row["id"]: row for row in result["forms"]}
@@ -74,6 +78,31 @@ def _check_file(ctx: dict, file_id: str) -> list[str]:
     return problems
 
 
+def _file_blocks(ctx: dict, file_id: str) -> list[dict]:
+    return [block for block in ctx["blocks"] if block.get("file_id") == file_id]
+
+
+def _coverage_problems(ctx: dict, file_id: str) -> list[str]:
+    """证明材料必须完成当前文件版本的全部分块覆盖核查，页码才可引用。"""
+    if not file_id:
+        return ["证明材料缺少文件记录"]
+    blocks = _file_blocks(ctx, file_id)
+    if not blocks:
+        return ["证明材料文件缺少已解析分块，无法证明核对覆盖范围"]
+    digest = (ctx["files_by_id"].get(file_id) or {}).get("sha256")
+    covered = set()
+    for row in ctx["evidence_coverage"]:
+        if row.get("file_id") != file_id or row.get("file_sha256") != digest:
+            continue
+        block = ctx["blocks_by_id"].get(row.get("block_id"))
+        if block is not None and row.get("block_hash") == json_hash(block):
+            covered.add(row["block_id"])
+    missing = sorted({block["id"] for block in blocks} - covered)
+    if missing:
+        return [f"证明材料尚未完成当前文件版本的覆盖核查，缺 {len(missing)} 个分块：" + "、".join(missing[:5])]
+    return []
+
+
 def _check_rule(ctx: dict, rule: dict) -> list[str]:
     problems = []
     if rule.get("status") != "confirmed":
@@ -97,6 +126,7 @@ def _check_rule(ctx: dict, rule: dict) -> list[str]:
 
 def _check_evidence(ctx: dict, evidence: dict, rule: dict | None = None, response: dict | None = None) -> list[str]:
     problems = list(_check_file(ctx, evidence.get("file_id", "")))
+    problems.extend(_coverage_problems(ctx, evidence.get("file_id", "")))
     file_row = ctx["files_by_id"].get(evidence.get("file_id"), {})
     if file_row.get("category") in ("业绩台账", "方法论", "历史章节"):
         problems.append("台账、方法论及历史章节只作参考，不能直接作为正式证明材料")
@@ -214,9 +244,42 @@ def _check_manual(ctx: dict, check_id: str) -> list[str]:
     item = ctx["manual_by_id"].get(check_id)
     if not item or item.get("status") != "confirmed" or not item.get("actor"):
         return ["关联人工检查项尚未确认或缺少确认人"]
-    if item.get("dependencies") and item.get("fingerprint") != ctx["project"].fingerprint(item["dependencies"]):
-        return ["人工检查对应的输入版本已变化，需重新确认"]
-    return []
+    problems = []
+    if item.get("actor_kind") != "human" or item.get("attestation") != "human":
+        problems.append("人工检查缺少显式人工声明（actor_kind/attestation），不能视为用户确认")
+    if not item.get("dependencies") or not item.get("fingerprint"):
+        problems.append("人工检查未绑定输入版本，须在当前版本重新确认")
+    else:
+        from .workflow import _dependency_fingerprint
+        if item.get("fingerprint") != _dependency_fingerprint(ctx["project"], item["dependencies"]):
+            problems.append("人工检查对应的输入版本已变化，需重新确认")
+    title = str(item.get("title", ""))
+    requires_product = item.get("requires_product")
+    if requires_product is None:
+        requires_product = check_id == "MC001" or "签章" in title
+    if requires_product:
+        assembly = ctx.get("assembly") if isinstance(ctx.get("assembly"), dict) else {}
+        outputs = assembly.get("outputs", []) if assembly else []
+        if not outputs or not any(output.get("docx") or output.get("pdf") for output in outputs):
+            problems.append("尚无已分页成品可绑定，签章类人工检查需在成品生成后重新确认")
+        else:
+            product_hashes = item.get("product_hashes") or {}
+            for output in outputs:
+                for kind in ("docx", "pdf"):
+                    relative = output.get(kind)
+                    if not relative:
+                        continue
+                    stored = product_hashes.get(f"{output.get('volume')}:{kind}")
+                    if not stored:
+                        problems.append(f"人工检查未绑定成品 {output.get('volume')} 的{kind}哈希，需重新确认")
+                        continue
+                    try:
+                        path = ctx["project"].safe_path(relative)
+                        if not path.is_file() or sha256_file(path) != stored:
+                            problems.append(f"人工检查绑定的成品 {output.get('volume')} 已变化，需重新确认")
+                    except (OSError, ValueError):
+                        problems.append(f"人工检查绑定的成品 {output.get('volume')} 路径无法核验")
+    return list(dict.fromkeys(problems))
 
 
 def _response(ctx: dict, rule: dict, response: dict) -> dict:
@@ -361,6 +424,71 @@ def _independent(review: dict, section: dict) -> bool:
     return bool(section.get("writer_id") and review.get("reviewer_id") and review.get("writer_id") == section["writer_id"] and review["reviewer_id"] != section["writer_id"])
 
 
+def _section_rule_ids(ctx: dict, section: dict) -> set[str]:
+    ids = {rid for rid in section.get("rule_ids", []) if rid}
+    ids |= {response.get("rule_id") for response in ctx["responses"] if section.get("id") in response.get("section_ids", []) and response.get("rule_id")}
+    return ids
+
+
+def _current_rule_revisions(ctx: dict, section: dict) -> dict[str, int]:
+    return {rid: ctx["rules_by_id"][rid].get("revision", 1) for rid in sorted(_section_rule_ids(ctx, section)) if rid in ctx["rules_by_id"] and ctx["rules_by_id"][rid].get("status") != "retired"}
+
+
+def _review_is_current(ctx: dict, section: dict, review: dict) -> bool:
+    """audit与score共用的当前复核判定：正文哈希、全部引用规则版本、事实/证据版本及独立性。"""
+    if review.get("section_id") != section.get("id") or _check_section(ctx, section.get("id", "")):
+        return False
+    if review.get("section_sha256") != section.get("sha256"):
+        return False
+    if review.get("rule_revisions") != _current_rule_revisions(ctx, section):
+        return False
+    if review.get("facts_fingerprint") != ctx["project"].fingerprint(["facts"]):
+        return False
+    for evidence_id, digest in (section.get("evidence_versions") or {}).items():
+        evidence = ctx["evidence_by_id"].get(evidence_id)
+        if not evidence or json_hash(evidence) != digest:
+            return False
+    if review.get("status") not in ("completed", "confirmed", "accepted", "pass", "revise"):
+        return False
+    return _independent(review, section)
+
+
+def _latest_current_review(ctx: dict, section: dict) -> dict | None:
+    current = [review for review in ctx["reviews"] if _review_is_current(ctx, section, review)]
+    return max(current, key=lambda item: item.get("round", 0)) if current else None
+
+
+def _resolution_valid(ctx: dict, section: dict, resolution: dict) -> bool:
+    """关闭声明必须绑定当前正文sha、实际定位及通过校验的证据，不能用旧版本或自报状态糊弄。"""
+    if resolution.get("section_sha256") != section.get("sha256"):
+        return False
+    if not str(resolution.get("basis", "")).strip() or not str(resolution.get("location", "")).strip():
+        return False
+    for evidence_id in resolution.get("evidence_ids", []):
+        evidence = ctx["evidence_by_id"].get(evidence_id)
+        if not evidence or _check_evidence(ctx, evidence):
+            return False
+    return True
+
+
+def _open_findings(ctx: dict, section_id: str) -> list[dict]:
+    """聚合本章历轮发现；只有带当前正文sha与有效依据的关闭声明才移除。extra里的status不生效。"""
+    section = ctx["sections_by_id"].get(section_id)
+    if not section:
+        return []
+    reviews = sorted((row for row in ctx["reviews"] if row.get("section_id") == section_id), key=lambda row: row.get("round", 0))
+    ledger: dict[str, dict] = {}
+    for review in reviews:
+        for index, finding in enumerate(review.get("findings", [])):
+            finding_id = finding.get("finding_id") or f"{review.get('id', 'REV')}-F{index + 1:02d}"
+            ledger[finding_id] = {**finding, "finding_id": finding_id, "round": review.get("round"), "review_id": review.get("id"), "state": "open"}
+        for resolution in review.get("resolutions", []):
+            finding_id = resolution.get("finding_id")
+            if finding_id in ledger and _resolution_valid(ctx, section, resolution):
+                ledger.pop(finding_id)
+    return sorted(ledger.values(), key=lambda row: (row.get("round") or 0, row["finding_id"]))
+
+
 def _score(ctx: dict, selected_staff: set[str] | None = None) -> dict:
     matching = _match(ctx, selected_staff)
     checks = {row["rule_id"]: row for row in matching["rules"]}
@@ -442,11 +570,11 @@ def _score(ctx: dict, selected_staff: set[str] | None = None) -> dict:
                 row["problems"].append(f"与 {winner['rule_id']} 属于互斥评分项，本次未叠加")
         winner["potential_additional_score"] = max(0, round(group_potential - winner["supported_score"], 4))
     simulated = []
-    for review in ctx["reviews"]:
-        section = ctx["sections_by_id"].get(review.get("section_id"))
-        if not section or review.get("section_sha256") != section.get("sha256") or _check_section(ctx, section["id"]) or not _independent(review, section):
+    for section in ctx["sections"]:
+        review = _latest_current_review(ctx, section)
+        if not review or review.get("status") != "pass":
             continue
-        if review.get("status") not in ("completed", "confirmed", "accepted", "pass", "revise"):
+        if any(finding.get("severity") == "error" for finding in _open_findings(ctx, section["id"])):
             continue
         for item in review.get("scores", []):
             rule = next((r for r in ctx["rules"] if r["id"] == item.get("rule_id") and r.get("kind") == "technical" and r.get("status") != "retired"), None)
@@ -596,7 +724,9 @@ def audit(project) -> dict:
     matching = _match(ctx)
     issues = []
     def add(severity: str, category: str, message: str, refs: list[str] | None = None):
-        issues.append({"id": f"AUD{len(issues) + 1:04d}", "severity": severity, "category": category, "message": message, "refs": refs or [], "status": "open"})
+        refs = refs or []
+        stable = json_hash({"severity": severity, "category": category, "message": message, "refs": refs})[:12]
+        issues.append({"id": "AUD-" + stable, "severity": severity, "category": category, "message": message, "refs": refs, "status": "open"})
     if not any(rule.get("status") != "retired" for rule in ctx["rules"]):
         add("error", "rules", "尚无招标拆解规则，不能完成覆盖审核")
     if ctx["settings"].get("anonymous"):
@@ -609,6 +739,13 @@ def audit(project) -> dict:
             for evidence in response["evidence"]:
                 if evidence["problems"]:
                     add("warning", "evidence", f"{evidence['id']}：{'；'.join(evidence['problems'])}", [row["rule_id"], evidence["id"]])
+    referenced_evidence = {eid for response in ctx["responses"] for eid in response.get("evidence_ids", [])}
+    for evidence in ctx["evidence"]:
+        if evidence.get("id") in referenced_evidence:
+            continue
+        notes = _coverage_problems(ctx, evidence.get("file_id", ""))
+        if notes:
+            add("warning", "evidence_idle", f"未被响应采用的证据 {evidence['id']}：" + "；".join(notes) + "；仅作提示，不阻断当前组卷", [evidence.get("id", "")])
     for response in ctx["responses"]:
         if not any(rule["id"] == response.get("rule_id") and rule.get("status") != "retired" for rule in ctx["rules"]):
             add("warning", "stale", "响应指向不存在或已废止规则", [response.get("id", "")])
@@ -623,26 +760,15 @@ def audit(project) -> dict:
             continue
         if re.search(r"\{\{[^}]+\}\}|\b(?:TODO|TBD|XXX)\b|【(?:待填|待确认|待补)[^】]*】|(?<!_)_{3,}(?!_)", content, re.I):
             add("warning", "placeholder", "正文仍有待填占位内容", [section["id"]])
-        section_rule_ids = set(section.get("rule_ids", [])) | {response["rule_id"] for response in ctx["responses"] if section["id"] in response.get("section_ids", [])}
-        technical_rules = [rule for rule in ctx["rules"] if rule.get("kind") == "technical" and rule.get("status") != "retired" and rule["id"] in section_rule_ids]
-        if not technical_rules:
+        section_rule_ids = _section_rule_ids(ctx, section)
+        if not section_rule_ids:
             continue
-        current_revisions = {rule["id"]: rule.get("revision", 1) for rule in technical_rules}
-        current_facts = project.fingerprint(["facts"])
-        current_reviews = [
-            review for review in ctx["reviews"]
-            if review.get("section_id") == section["id"]
-            and review.get("section_sha256") == section.get("sha256")
-            and review.get("rule_revisions") == current_revisions
-            and review.get("facts_fingerprint") == current_facts
-            and not problems
-            and review.get("status") in ("completed", "confirmed", "accepted", "pass", "revise")
-            and _independent(review, section)
-        ]
-        if not current_reviews:
+        technical_rules = [rule for rule in ctx["rules"] if rule.get("kind") == "technical" and rule.get("status") != "retired" and rule["id"] in section_rule_ids]
+        # 当前复核判定与score共用_review_is_current：全部引用规则(T+R)、正文hash、事实/证据版本及独立性。
+        review = _latest_current_review(ctx, section)
+        if not review:
             add("warning", "review", "当前正文版本尚无有效的独立复核", [section["id"]])
         else:
-            review = max(current_reviews, key=lambda item: item.get("round", 0))
             if review.get("status") == "revise":
                 add("warning", "review", "独立复核要求修改，当前正文尚未复核通过", [section["id"]])
             scored = {item.get("rule_id") for item in review.get("scores", []) if item.get("reason") and _number(item.get("score"), -1) >= 0}
@@ -655,9 +781,10 @@ def audit(project) -> dict:
                 reviewed_subs = set(review.get("covered_subrequirements", {}).get(rule["id"], []))
                 if required_subs - reviewed_subs:
                     add("warning", "review", "独立复核尚未确认本章声明响应的技术子要求：" + "、".join(sorted(required_subs - reviewed_subs)), [section["id"], rule["id"]])
-            for finding in review.get("findings", []):
-                if finding.get("status") != "resolved":
-                    add("warning", "review", finding.get("message", "独立复核意见尚未处理"), [section["id"], finding.get("rule_id", "")])
+        # 历轮未关闭发现全部汇总；error级未关闭发现作为阻断项，不能被新一轮pass或extra.status=resolved屏蔽。
+        for finding in _open_findings(ctx, section["id"]):
+            severity = "error" if finding.get("severity") == "error" else "warning"
+            add(severity, "review", f"未关闭复核发现（{finding.get('finding_id')}）：{finding.get('message', '独立复核意见尚未处理')}", [section["id"], finding.get("rule_id", "")])
         if any(review.get("round", 0) > max_rounds for review in ctx["reviews"] if review.get("section_id") == section["id"]):
             add("warning", "review", "复核轮次超过设置上限，需明确处理未解决问题", [section["id"]])
     shared = ctx["facts"]
@@ -697,8 +824,9 @@ def audit(project) -> dict:
         if not any(item.get("id") == check_id or item.get("title") in aliases for item in checks):
             add("warning", "manual", f"未建立必要人工检查项：{required}")
     for item in checks:
-        if _check_manual(ctx, item["id"]):
-            add("warning", "manual", item.get("title", "人工检查项") + "尚未通过", [item.get("id", "")])
+        problems = _check_manual(ctx, item["id"])
+        if problems:
+            add("warning", "manual", item.get("title", "人工检查项") + "尚未通过：" + "；".join(problems), [item.get("id", "")])
     scoring_rules = [rule for rule in ctx["rules"] if rule.get("kind") in ("business", "technical", "price") and rule.get("status") != "retired"]
     expected = ctx["settings"].get("expected_total_score")
     if expected is not None and not math.isclose(sum(_number(rule.get("max_score")) for rule in scoring_rules), _number(expected), abs_tol=0.0001):
@@ -717,6 +845,11 @@ def audit(project) -> dict:
                 add("warning", "assembly", problem)
         except (OSError, ValueError, KeyError, RuntimeError) as exc:
             add("warning", "assembly", f"组卷输出无法核验：{exc}")
+    reports = reports_status(project)
+    if reports.get("current") and reports.get("stale"):
+        add("warning", "report", "当前资料已变化，现有派生报告已过期，请重新运行 reports", [reports["current"]])
+    for relative in reports.get("modified", []):
+        add("warning", "report", f"派生报告被人为改动或缺失：{relative}", [relative])
     return {"status": "blocked" if any(issue["severity"] == "error" for issue in issues) else "review_required" if issues else "ready_for_manual_submission_review", "summary": f"发现 {sum(item['severity'] == 'error' for item in issues)} 项阻断问题、{sum(item['severity'] == 'warning' for item in issues)} 项待复核事项；真实项目验收状态：{project.meta.get('acceptance_status', '待实标验收')}。", "issues": issues, "matching": matching, "score": scoring, "automatic_submission": False}
 
 
@@ -730,20 +863,71 @@ def _table(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(["| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |", *["| " + " | ".join(_cell(value) for value in row) + " |" for row in rows]]) + "\n"
 
 
+def _report_input_fingerprint(project) -> str:
+    assembly = project.load("assembly", {}) or {}
+    outputs = {}
+    for output in assembly.get("outputs", []):
+        for kind in ("docx", "pdf"):
+            relative = output.get(kind)
+            if not relative:
+                continue
+            try:
+                path = project.safe_path(relative)
+                outputs[relative] = sha256_file(path) if path.is_file() else "missing"
+            except (OSError, ValueError):
+                outputs[str(relative)] = "unavailable"
+    return json_hash({"records": project.fingerprint(["rules", "evidence", "responses", "sections", "reviews", "plans", "forms", "facts", "settings", "manual_checks", "issues", "blocks", "files", "analysis_coverage"]), "outputs": outputs})
+
+
+def reports_status(project) -> dict:
+    """判断当前派生报告是否过期或被人为改动；保留历史批次供追溯。"""
+    manifest_path = project.safe_path("06_审核检查/报告清单.json")
+    if not manifest_path.is_file():
+        return {"batches": 0, "current": None, "stale": False, "modified": []}
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"batches": 0, "current": None, "stale": True, "modified": ["06_审核检查/报告清单.json"]}
+    batches = manifest.get("batches", [])
+    current = next((row for row in reversed(batches) if row.get("id") == manifest.get("current_batch")), batches[-1] if batches else None)
+    if not current:
+        return {"batches": 0, "current": None, "stale": False, "modified": []}
+    modified = []
+    for relative, digest in (current.get("files") or {}).items():
+        try:
+            path = project.safe_path(relative)
+            if not path.is_file() or sha256_file(path) != digest:
+                modified.append(relative)
+        except (OSError, ValueError):
+            modified.append(relative)
+    return {"batches": len(batches), "current": current.get("id"), "input_fingerprint": current.get("input_fingerprint"),
+            "stale": current.get("input_fingerprint") != _report_input_fingerprint(project), "modified": modified}
+
+
 def render_reports(project) -> dict:
     """生成可重建的 Markdown 报告，不改变主记录和正文。"""
     result = audit(project)
     matching, scoring = result["matching"], result["score"]
+    input_fingerprint = _report_input_fingerprint(project)
+    audit_id = json_hash([{"severity": issue["severity"], "category": issue["category"], "message": issue["message"], "refs": issue["refs"]} for issue in result["issues"]])[:16]
+    batch_id = utc_now().replace(":", "").replace("-", "").replace(".", "") + "-" + input_fingerprint[:8]
+    generated_at = utc_now()
     paths = []
     def output(relative: str, title: str, body: str):
         path = project.safe_path(relative)
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_text(path, f"# {title}\n\n本文件由当前主记录生成，可重建。台账候选、材料事实与本次规则适用性分别核验。\n\n{body}\n")
+        header = (f"# {title}\n\n报告批次：{batch_id}；输入指纹：{input_fingerprint}；审核编号：{audit_id}；生成时间：{generated_at}。\n\n"
+                  "本文件由当前主记录生成，可重建；同批次报告共享同一输入指纹，旧批次保留在 06_审核检查/报告历史。"
+                  "台账候选、材料事实与本次规则适用性分别核验。\n\n")
+        write_text(path, header + body + "\n")
         paths.append(str(path))
     source_display = lambda row: [f"{item.get('file_id', '')} / {item.get('block_id', '')} / 页{item.get('page') or '待定位'}" for item in row["sources"]]
     spec_path = project.safe_path("02_招标拆解/bid_spec.json")
     atomic_json(spec_path, {
-        "generated_at": utc_now(),
+        "generated_at": generated_at,
+        "batch_id": batch_id,
+        "input_fingerprint": input_fingerprint,
+        "audit_id": audit_id,
         "source": ".bidflow/records中的当前主记录，可由主记录重建",
         "project": project.meta,
         "confirmed_facts": project.load("facts", {}),
@@ -780,4 +964,23 @@ def render_reports(project) -> dict:
     output("06_审核检查/技术评分覆盖复核.md", "技术评分覆盖复核", matrix)
     output("06_审核检查/审核清单.md", "审核清单", result["summary"] + "\n\n" + _table(["编号", "等级", "类别", "问题", "关联项"], [[item["id"], item["severity"], item["category"], item["message"], item["refs"]] for item in result["issues"]]))
     output("06_审核检查/技术模拟评分.md", "技术模拟评分", "此表只展示独立复核的模拟分，不合并为商务证据分。\n\n" + _table(["评分项", "章节", "复核记录", "模拟分", "依据"], [[row["rule_id"], row["section_id"], row["review_id"], row["score"], row["reason"]] for row in scoring["technical_simulations"]]))
-    return {"status": result["status"], "paths": paths, "summary": "已重建资格、否决、评分、证据匹配、缺件及审核报告。"}
+    files = {}
+    for path in paths:
+        relative = Path(path).relative_to(project.root).as_posix()
+        files[relative] = sha256_file(project.safe_path(relative))
+    archive = project.safe_path(f"06_审核检查/报告历史/{batch_id}")
+    archive.mkdir(parents=True, exist_ok=True)
+    for relative in files:
+        shutil.copy2(project.safe_path(relative), archive / Path(relative).name)
+    manifest_path = project.safe_path("06_审核检查/报告清单.json")
+    manifest = read_json(manifest_path, {"version": 1, "batches": []}) or {"version": 1, "batches": []}
+    supersedes = manifest.get("current_batch")
+    manifest["version"] = 1
+    manifest["current_batch"] = batch_id
+    manifest["batches"] = [*manifest.get("batches", []), {"id": batch_id, "generated_at": generated_at, "input_fingerprint": input_fingerprint,
+                                                          "audit_id": audit_id, "status": result["status"], "supersedes": supersedes,
+                                                          "files": files, "archive": f"06_审核检查/报告历史/{batch_id}"}]
+    atomic_json(manifest_path, manifest)
+    paths.append(str(manifest_path))
+    return {"status": result["status"], "batch_id": batch_id, "input_fingerprint": input_fingerprint, "audit_id": audit_id,
+            "paths": paths, "archive": f"06_审核检查/报告历史/{batch_id}", "summary": "已重建资格、否决、评分、证据匹配、缺件及审核报告；旧批次保留在报告历史中。"}
