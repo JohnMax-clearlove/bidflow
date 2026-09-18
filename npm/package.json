@@ -1,0 +1,38 @@
+{
+  "name": "bidflow",
+  "version": "0.2.0",
+  "description": "BidFlow 安装引导与命令转发。核心是本地 Python 程序 bidflow-local：本地优先的 Agent 投标文件编制工作流，程序本身不调用模型 API。",
+  "bin": {
+    "bidflow": "bin/bidflow.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "keywords": [
+    "bidflow",
+    "tender",
+    "bidding",
+    "proposal",
+    "agent",
+    "local-first"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JohnMax-clearlove/bidflow.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/JohnMax-clearlove/bidflow#readme",
+  "bugs": {
+    "url": "https://github.com/JohnMax-clearlove/bidflow/issues"
+  },
+  "license": "UNLICENSED"
+}

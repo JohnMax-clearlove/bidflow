@@ -1,6 +1,8 @@
 # BidFlow
 
-BidFlow 是一套本地优先的咨询服务投标工作流。程序保管原件、拆分文件、检索资料、校验版本、测算证据支持分并生成 Word/PDF。主 Agent 负责分工与验收，默认由已配置的 pi 执行具体任务，人工完成必要确认。Python 程序本身不调用模型 API。
+BidFlow 是一套本地优先的咨询服务投标工作流。程序保管原件、拆分文件、检索资料、校验版本、测算证据支持分并生成 Word/PDF。语义任务由你正在使用的宿主 Agent 完成，主 Agent 负责分工与验收，人工完成必要确认。Python 程序本身不调用模型 API。
+
+BidFlow 与具体 Agent 无关：Codex、Claude Code、Qoder、Trae、WorkBuddy、千问办公等任何能在项目目录运行命令的 Agent 都可以驱动；换一个 Agent 或换一次对话，从项目文件继续。
 
 当前版本为 `0.2.0`，状态是**待实标验收**。新版增加组卷后的人工与 Agent 独立双审，支持外部人工完成的 PDF。软件测试通过不等于真实投标项目已经全流程验收。
 
@@ -40,11 +42,67 @@ A项目投标/
 └─ .bidflow/                       主记录、任务、历史和缓存
 ```
 
-日常只需在 Codex 中打开当前项目小文件夹。迁移或归档项目时复制整个项目文件夹；`.bidflow/records`、`.bidflow/tasks` 和 `.bidflow/history` 都要保留，只有 `.bidflow/cache` 可以重建。
+日常只需在任意 Agent 中打开当前项目小文件夹（Codex、Claude Code、Qoder、Trae、WorkBuddy、千问办公等均可）。迁移或归档项目时复制整个项目文件夹；`.bidflow/records`、`.bidflow/tasks` 和 `.bidflow/history` 都要保留，只有 `.bidflow/cache` 可以重建。
 
 ## 安装
 
-需要 Python 3.12。以下命令在总文件夹的 PowerShell 中执行：
+不需要管理员权限。以下方式任选其一，效果相同：都以固定 commit 从仓库安装 `bidflow-local`，用 uv 管理隔离的 Python 与依赖，Windows 默认安装到 `%LOCALAPPDATA%\BidFlow`，与投标项目、公司资料彻底分开。
+
+### 方式一：PowerShell 一键（Windows）
+
+在 PowerShell 中执行：
+
+```powershell
+irm https://raw.githubusercontent.com/JohnMax-clearlove/bidflow/main/install.ps1 | iex
+```
+
+安装器用 uv 管理隔离的 Python 与依赖，默认安装到 `%LOCALAPPDATA%\BidFlow`，与投标项目、公司资料彻底分开；默认把 `main` 解析为完整 commit SHA 后从该 SHA 的归档安装，并在新入口的 `bidflow doctor` 检查通过后才切换稳定入口。不放心直接执行远程脚本时，可先下载查看再运行：
+
+```powershell
+irm https://raw.githubusercontent.com/JohnMax-clearlove/bidflow/main/install.ps1 -OutFile "$env:TEMP\bidflow-install.ps1"
+Get-Content "$env:TEMP\bidflow-install.ps1" | more
+$code = Get-Content -Raw -Encoding UTF8 "$env:TEMP\bidflow-install.ps1"
+& ([scriptblock]::Create($code))
+```
+
+脚本按 UTF-8 无 BOM 保存，以便 `irm | iex` 在任何 PowerShell 中正确读取；Windows PowerShell 5.1 的 `-File` 参数会按本地代码页误读中文，所以本地执行时显式按 UTF-8 读取，PowerShell 7 下同样可用。
+
+常用参数：`-WithOcr` 安装扫描件 OCR 依赖，`-NoOcr` 明确不装并覆盖上次选择，`-NoPath` 不改用户 PATH，`-Rollback` 回滚上一版本，`-Uninstall` 卸载。更新就是重新运行安装命令；安装、回滚、卸载与安全边界的完整说明见[安装与更新](docs/安装与更新.md)。
+
+BidFlow 不会联网下载 OCR 模型。`doctor` 会报告 Python、解析组件、Pandoc、Microsoft Word 和 OCR 的实际可用状态。没有 Pandoc 仍可保留 DOCX 结构定位；没有桌面版 Word 仍可生成未分页 DOCX，但不能完成最终页码和链接验收。
+
+### 方式二：npm（需要 Node.js 18+）
+
+npm 包只是安装引导与命令转发，核心仍是同一套本地 Python 程序：
+
+```powershell
+npm install -g bidflow
+bidflow doctor
+```
+
+也可以不全局安装，直接 `npx bidflow doctor`。本机未安装时，包装器会先自动执行安装再转发命令；`bidflow --with-ocr`、`--no-ocr`、`--no-path`、`--rollback`、`--uninstall`、`--ref 提交`、`--install-root 路径` 与安装脚本参数一一对应，`bidflow --help` 查看说明。
+
+### 方式三：curl
+
+Windows 上习惯 curl 时，下载后按方式一同样以 UTF-8 读取运行：
+
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/JohnMax-clearlove/bidflow/main/install.ps1 -o "$env:TEMP\bidflow-install.ps1"
+$code = Get-Content -Raw -Encoding UTF8 "$env:TEMP\bidflow-install.ps1"
+& ([scriptblock]::Create($code))
+```
+
+Linux/macOS 提供 bash 安装器（可生成与检查文档，但完整 Word 分页与链接验收仍需 Windows 桌面版 Word）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/JohnMax-clearlove/bidflow/main/install.sh | bash
+```
+
+安装渠道的细节（参数、安装位置、更新、回滚、卸载与安全边界）见[安装与更新](docs/安装与更新.md)。
+
+### 开发者从源码安装
+
+需要在总文件夹用 Python 3.12 建立虚拟环境：
 
 ```powershell
 py -3.12 -m venv .venv
@@ -58,29 +116,29 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[ocr]"
 ```
 
-BidFlow 不会联网下载 OCR 模型。`doctor` 会报告 Python、解析组件、Pandoc、Microsoft Word 和 OCR 的实际可用状态。没有 Pandoc 仍可保留 DOCX 结构定位；没有桌面版 Word 仍可生成未分页 DOCX，但不能完成最终页码和链接验收。
+下文命令中的 `bidflow` 在源码安装方式下等价于 `.\.venv\Scripts\bidflow.exe`。
 
 ## 第一次使用
 
-先在总文件夹初始化公司公共资料库：
+安装后请新开一个终端或重新打开 Agent，再初始化公司公共资料库：
 
 ```powershell
-.\.venv\Scripts\bidflow.exe library ".\company_library"
+bidflow library ".\company_library"
 ```
 
 把证照、资质、人员证书、业绩证明、方法论和业绩台账放入相应分类目录，再导入：
 
 ```powershell
-.\.venv\Scripts\bidflow.exe ingest --scan --project ".\company_library"
+bidflow ingest --scan --project ".\company_library"
 ```
 
 接到新项目后，从总文件夹创建项目：
 
 ```powershell
-.\.venv\Scripts\bidflow.exe init "A项目投标" --path ".\projects\A项目投标" --library ".\company_library"
+bidflow init "A项目投标" --path ".\projects\A项目投标" --library ".\company_library"
 ```
 
-然后在 Codex 中打开 `projects/A项目投标`。把招标文件放入 `01_输入文件/01_招标文件`，直接对 Agent 说：
+然后在任意 Agent 中打开 `projects/A项目投标`。把招标文件放入 `01_输入文件/01_招标文件`，直接对 Agent 说：
 
 > 请按本项目 AGENTS.md 工作。先运行 BidFlow 的 status、next 和 ingest --scan，处理全部 analyze 任务；每个任务读取 context.json，按 result_schema 生成 result.json 并接收。先给我核对招标规则，不要直接开始写正文。
 
@@ -144,14 +202,14 @@ bidflow task accept --project . --task TASK编号 --result .bidflow/tasks/TASK�
 
 也可以说：
 
-> 这是外部人工排版好的待签章文件，请先锁定这份 PDF，再让我和 pi 分别独立核对，最后汇总问题清单。
+> 这是外部人工排版好的待签章文件，请先锁定这份 PDF，再让我和一个独立 Agent 分别独立核对，最后汇总问题清单。
 
 流程固定为：
 
 1. **锁定成品**：`bidflow final-review start --stage content --writer 编制者 --pdf 待签章.pdf`（或 `--assembly` 引用本程序组卷成品）。程序复制原件并记录哈希、页数和规则/证据版本，不改原件。
-2. **两条 lane 独立准备**：`prepare --lane human` 生成给用户看的人工核查清单，`prepare --lane agent` 生成给 pi 的任务包；两边不互相提供初稿或评分。
+2. **两条 lane 独立准备**：`prepare --lane human` 生成给用户看的人工核查清单，`prepare --lane agent` 生成给独立 Agent 的任务包；两边不互相提供初稿或评分。
 3. **用户核对**：按清单逐项查看原页，填写结论和理由。
-4. **pi 独立核对**：pi 只依据锁定成品、规则原文和项目事实逐项核查。
+4. **独立 Agent 核对**：该 Agent 只依据锁定成品、规则原文和项目事实逐项核查。
 5. **主 Agent 汇总**：`finalize` 保留双方原始结论与分歧，列出所有未解决阻断项；需要修改时由主 Agent 说明并安排补证或改稿。
 6. **改版再核**：内容或证据改动后重新发起双审，旧通过失效；同一版本纠正误报时由该 lane 交新 revision 并保留原记录。
 7. **签章后再核**：签章 PDF 作为新快照，用 `--stage signed --parent 原内容双审ID` 重新双审，逐页对比签章版与内容版。
@@ -173,7 +231,7 @@ bidflow final-review status --project . FR001
 
 ## 异常恢复和隐私
 
-- 随时运行 `bidflow status --project .` 和 `bidflow next --project .`，换一个 Codex 对话也能从项目记录继续。
+- 随时运行 `bidflow status --project .` 和 `bidflow next --project .`，换一个 Agent 对话（或换一个 Agent）也能从项目记录继续。
 - 索引损坏可运行 `bidflow reindex --project .`；派生报告可运行 `bidflow reports --project .` 重建。
 - 只有确认原写入进程已经终止后，才按报错中的旧进程号运行 `bidflow recover --pid 旧进程号 --project .`。仍在运行的写入不会被抢占。
 - 所有输入、解析缓存、主记录和成品默认留在本机。钉钉、飞书和合同系统接口当前只生成“需人工检索”提示；下载后的资料要放回项目再导入。
@@ -197,6 +255,7 @@ Word 自动化应在能正常使用桌面 Word 的 Windows 环境运行。沙箱
 
 ## 进一步说明
 
+- [安装与更新（一键/npm/curl 安装、更新、回滚与卸载）](docs/安装与更新.md)
 - [文件导入、OCR、检索和台账](docs/文件导入.md)
 - [证据核验、计分和人员配置](docs/证据与计分.md)
 - [商务表单、组卷和输出核验](docs/组卷与表单.md)
