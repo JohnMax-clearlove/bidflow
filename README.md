@@ -71,7 +71,9 @@ $code = Get-Content -Raw -Encoding UTF8 "$env:TEMP\bidflow-install.ps1"
 
 BidFlow 不会联网下载 OCR 模型。`doctor` 会报告 Python、解析组件、Pandoc、Microsoft Word 和 OCR 的实际可用状态。没有 Pandoc 仍可保留 DOCX 结构定位；没有桌面版 Word 仍可生成未分页 DOCX，但不能完成最终页码和链接验收。
 
-### 方式二：npm（需要 Node.js 18+）
+### 方式二：npm（需要 Node.js 18+；计划中，尚未发布）
+
+> **该渠道尚未发布到 npm**：`npm install -g bidflow` 目前会返回 404。请先使用方式一或方式三安装；包与文档已就绪，发布后本节恢复可用。
 
 npm 包只是安装引导与命令转发，核心仍是同一套本地 Python 程序：
 

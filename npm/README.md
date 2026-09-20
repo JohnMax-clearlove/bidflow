@@ -1,5 +1,7 @@
 # bidflow（npm 包装器）
 
+> **状态：尚未发布到 npm（计划中）。** 发布前，仓库根 README 的一键/curl 渠道是可用安装方式；包与文档已就绪，发布后即生效。
+
 本目录是 BidFlow 的 npm 安装引导包，**不包含业务逻辑**：核心是 GitHub 仓库
 `JohnMax-clearlove/bidflow` 中的本地 Python 程序 `bidflow-local`（本地优先的
 Agent 投标文件编制工作流）。npm 包只做两件事：
