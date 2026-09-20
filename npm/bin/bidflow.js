@@ -204,6 +204,25 @@ function parseArgs(argv) {
   return parsed;
 }
 
+// PowerShell 单引号字符串字面量；内部单引号写成两个。
+function psQuote(value) {
+  return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+// install.ps1 按 UTF-8 无 BOM 保存（保证 irm | iex 在 Windows PowerShell 5.1 与 PowerShell 7
+// 下都能正确读取中文；见 docs/安装与更新.md）。5.1 的 -File 会按本地代码页误读中文导致解析
+// 失败，因此本地执行必须显式按 UTF-8 读取后以 scriptblock 执行（5.1 与 7 均可用）。
+const INSTALLER_SWITCHES = new Set(["-Ref", "-InstallRoot", "-WithOcr", "-NoOcr", "-NoPath", "-Rollback", "-Uninstall"]);
+
+function buildWindowsInstallCommand(scriptPath, installerArgs) {
+  const args = installerArgs
+    .map((arg) => (INSTALLER_SWITCHES.has(arg) ? arg : psQuote(arg)))
+    .join(" ");
+  return "$ErrorActionPreference='Stop';" +
+    "$code=Get-Content -Raw -Encoding UTF8 -LiteralPath " + psQuote(scriptPath) + ";" +
+    "try { & ([scriptblock]::Create($code))" + (args ? " " + args : "") + " } catch { Write-Error $_; exit 1 }";
+}
+
 // 下载并执行官方安装脚本；只允许 HTTPS，执行后删除临时脚本。
 async function runInstaller(parsed) {
   const suffix = IS_WINDOWS ? ".ps1" : ".sh";
@@ -218,7 +237,7 @@ async function runInstaller(parsed) {
   }
   let result;
   if (IS_WINDOWS) {
-    result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath].concat(toInstallerArgs(parsed)), {
+    result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", buildWindowsInstallCommand(scriptPath, toInstallerArgs(parsed))], {
       stdio: "inherit"
     });
   } else {
@@ -295,9 +314,14 @@ async function main() {
   return result.status == null ? 1 : result.status;
 }
 
-main().then((code) => {
-  process.exit(code);
-}, (error) => {
-  fail(error && error.message ? error.message : String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  main().then((code) => {
+    process.exit(code);
+  }, (error) => {
+    fail(error && error.message ? error.message : String(error));
+    process.exit(1);
+  });
+}
+
+// 供测试引用（直接以 CLI 运行不受影响）。
+module.exports = { buildWindowsInstallCommand, psQuote, toInstallerArgs };

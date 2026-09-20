@@ -140,3 +140,60 @@ def test_wrapper_help() -> None:
     assert result.returncode == 0
     assert "npm 包装器" in result.stdout
     assert "bidflow doctor" in result.stdout
+
+
+def _decode_ps_bytes(data: bytes) -> str:
+    """兼容 PS5.1 的 OEM 输出与 PS7 的 UTF-8 输出。"""
+    for encoding in ("utf-8", "oem", "mbcs"):
+        try:
+            return data.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode("utf-8", "replace")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="本用例验证 Windows PowerShell 执行路径")
+def test_windows_install_command_reads_utf8_instead_of_file_flag(tmp_path: Path) -> None:
+    """Windows 上必须以 UTF-8 读取方式执行 install.ps1，不得使用 -File。
+
+    背景：install.ps1 按 UTF-8 无 BOM 保存（见 docs/安装与更新.md），Windows PowerShell 5.1
+    的 -File 会按本地代码页误读中文导致解析失败；包装器曾用 powershell.exe -File，
+    在中文 Windows 上 npm 安装命令会直接坏掉（已有 docs 与实际测试佐证：只有 PS7 能直接 -File）。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不可用")
+    text = WRAPPER.read_text(encoding="utf-8")
+    assert "Get-Content -Raw -Encoding UTF8" in text, "安装脚本必须以 UTF-8 显式读取"
+    assert '"-File"' not in text, "不得用 -File 执行 install.ps1（5.1 会误读中文）"
+
+    # 动态复现：用含中文与空格的替身脚本走包装器的真实执行命令
+    stub = tmp_path / "替身 安装 脚本.ps1"
+    stub.write_text(
+        "param([string]$Ref, [string]$InstallRoot, [switch]$NoPath)\n"
+        "Write-Output ('标记=中文正常 ref=' + $Ref + ' root=' + $InstallRoot + ' noPath=' + [bool]$NoPath)\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    probe = (
+        "const w = require(process.argv[1]);"
+        "process.stdout.write(w.buildWindowsInstallCommand(process.argv[2],"
+        " ['-Ref', 'main', '-NoPath', '-InstallRoot', 'D:/x y']));"
+    )
+    built = subprocess.run([node, "-e", probe, str(WRAPPER), str(stub)], capture_output=True, text=True, encoding="utf-8")
+    assert built.returncode == 0, built.stderr
+    command = built.stdout
+    assert "Get-Content -Raw -Encoding UTF8" in command
+    assert "-File" not in command
+
+    ps = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if not ps:
+        pytest.skip("未找到 PowerShell")
+    result = subprocess.run(
+        [ps, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+    )
+    output = _decode_ps_bytes(result.stdout) + _decode_ps_bytes(result.stderr)
+    assert result.returncode == 0, output
+    assert "标记=中文正常" in output, output
+    assert "ref=main" in output and "noPath=True" in output and "root=D:/x y" in output, output

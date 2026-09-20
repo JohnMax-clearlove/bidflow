@@ -1,5 +1,6 @@
 include AGENTS.md
 include install.ps1
+include install.sh
 recursive-include tests *.py
 recursive-include docs *.md
 recursive-include schemas *.json

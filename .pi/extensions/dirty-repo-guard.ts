@@ -5,7 +5,7 @@
  * Useful to ensure work is committed before switching context.
  *
  * 来源：pi 官方扩展示例（examples/extensions/dirty-repo-guard.ts），原样安装。
- * 在非交互模式下（派工 worker），工作区有未提交改动时默认拦截。
+ * 在非交互模式下（后台/子代理会话），工作区有未提交改动时默认拦截。
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";

@@ -37,7 +37,7 @@ say_note() { printf '          %s\n' "$1"; }
 say_warn() { printf '[BidFlow 警告] %s\n' "$1"; }
 say_error() { printf '[BidFlow 安装失败] %s\n' "$1" >&2; }
 
-usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

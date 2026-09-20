@@ -4,8 +4,9 @@
 `JohnMax-clearlove/bidflow` 中的本地 Python 程序 `bidflow-local`（本地优先的
 Agent 投标文件编制工作流）。npm 包只做两件事：
 
-1. 未安装时，从固定提交下载并执行官方安装脚本（Windows 为 `install.ps1`，
-   Linux/macOS 为 `install.sh`），用 uv 管理隔离的 Python 与依赖；
+1. 未安装时，下载并执行官方安装脚本（Windows 为 `install.ps1`，Linux/macOS 为
+   `install.sh`；默认取 `main`，可用 `--ref`/`BIDFLOW_REF` 指定标签或提交，
+   安装器再把引用解析为固定提交归档），用 uv 管理隔离的 Python 与依赖；
 2. 已安装时，把命令转发给本机 BidFlow 入口。
 
 ## 使用
@@ -40,6 +41,8 @@ bidflow --install-root D:\BidFlow
 
 - Windows 默认安装根目录 `%LOCALAPPDATA%\BidFlow`；Linux/macOS 默认 `~/.bidflow`。
 - 可用环境变量：`BIDFLOW_REF`（默认安装提交）、`BIDFLOW_INSTALL_ROOT`（安装根目录）。
+- Windows 下包装器显式按 UTF-8 读取安装脚本后执行，兼容 PowerShell 5.1 与 PowerShell 7
+  （5.1 的 `-File` 会按本地代码页误读中文，与 `docs/安装与更新.md` 的约定一致）。
 - 安装器不会要求管理员权限，不配置模型 API，不自动签章，不提交投标；
   完整 Word 分页与链接验收仍需 Windows 桌面版 Microsoft Word。
 
