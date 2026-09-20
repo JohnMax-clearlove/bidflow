@@ -10,20 +10,20 @@ BidFlow 与具体 Agent 无关：Codex、Claude Code、Qoder、Trae、WorkBuddy�
 
 ## 文件夹怎么放
 
-一个总文件夹保存程序和公司公共资料，每次投标建立一个独立项目小文件夹：
+**程序与资料分开**：安装器把程序装到系统位置（Windows 默认 `%LOCALAPPDATA%\BidFlow`，Linux/macOS 默认 `~/.bidflow`），与投标资料互不相干——升级或卸载程序都不会动你的资料。
+
+资料放哪里由你决定：公司公共资料库建一处长期维护，每次投标建一个独立项目文件夹（位置都可以自定）。建议集中放在一个数据目录下，例如：
 
 ```text
-Bid Document Preparation/          总文件夹
-├─ src、docs、schemas、tests       程序、说明和数据规范
+D:\投标数据/                       数据目录（名称与位置自定）
 ├─ company_library/                公司公共资料库，长期维护
 │  └─ 01_输入文件/
 │     ├─ 02_公司证照 … 07_人员业绩证明
 │     ├─ 09_方法论
 │     ├─ 10_历史章节
 │     └─ 11_业绩台账
-└─ projects/
-   ├─ A项目投标/                   一个项目一个文件夹
-   └─ B项目投标/
+├─ A项目投标/                      一个项目一个文件夹
+└─ B项目投标/
 ```
 
 项目小文件夹内固定为：
@@ -104,7 +104,7 @@ curl -fsSL https://raw.githubusercontent.com/JohnMax-clearlove/bidflow/main/inst
 
 ### 开发者从源码安装
 
-需要在总文件夹用 Python 3.12 建立虚拟环境：
+需要在仓库根目录用 Python 3.12 建立虚拟环境（程序目录，不要放投标资料）：
 
 ```powershell
 py -3.12 -m venv .venv
@@ -125,22 +125,22 @@ py -3.12 -m venv .venv
 安装后请新开一个终端或重新打开 Agent，再初始化公司公共资料库：
 
 ```powershell
-bidflow library ".\company_library"
+bidflow library "D:\投标数据\company_library"
 ```
 
 把证照、资质、人员证书、业绩证明、方法论和业绩台账放入相应分类目录，再导入：
 
 ```powershell
-bidflow ingest --scan --project ".\company_library"
+bidflow ingest --scan --project "D:\投标数据\company_library"
 ```
 
-接到新项目后，从总文件夹创建项目：
+接到新项目后，创建项目文件夹（位置自定，示例放在数据目录下）：
 
 ```powershell
-bidflow init "A项目投标" --path ".\projects\A项目投标" --library ".\company_library"
+bidflow init "A项目投标" --path "D:\投标数据\A项目投标" --library "D:\投标数据\company_library"
 ```
 
-然后在任意 Agent 中打开 `projects/A项目投标`。把招标文件放入 `01_输入文件/01_招标文件`，直接对 Agent 说：
+然后在任意 Agent 中打开该项目文件夹。把招标文件放入 `01_输入文件/01_招标文件`，直接对 Agent 说：
 
 > 请按本项目 AGENTS.md 工作。先运行 BidFlow 的 status、next 和 ingest --scan，处理全部 analyze 任务；每个任务读取 context.json，按 result_schema 生成 result.json 并接收。先给我核对招标规则，不要直接开始写正文。
 
@@ -237,7 +237,7 @@ bidflow final-review status --project . FR001
 - 索引损坏可运行 `bidflow reindex --project .`；派生报告可运行 `bidflow reports --project .` 重建。
 - 只有确认原写入进程已经终止后，才按报错中的旧进程号运行 `bidflow recover --pid 旧进程号 --project .`。仍在运行的写入不会被抢占。
 - 所有输入、解析缓存、主记录和成品默认留在本机。钉钉、飞书和合同系统接口当前只生成“需人工检索”提示；下载后的资料要放回项目再导入。
-- `projects/`、`company_library/`、缓存和真实成果均不应提交公开 Git。仓库中的 [`examples`](examples/合成咨询服务输入/README.md) 全部为虚构测试数据。
+- 投标资料、公司资料和项目成果不要提交到任何公开仓库；本仓库中的 [`examples`](examples/合成咨询服务输入/README.md) 全部为虚构测试数据。
 
 ## 开发验证与提交
 
